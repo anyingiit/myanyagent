@@ -9,7 +9,7 @@ same App. No per-repo scripts; each repo just commits a small
 
 ```sh
 # From a clone of this repo:
-sh myanyagent/install.sh
+sh install.sh
 ```
 
 This installs the tool to `~/.local/share/myanyagent/`, creates symlinks
@@ -61,7 +61,7 @@ No command memorization required; the tool self-describes the next step.
 ## Tests
 
 ```sh
-node --test myanyagent/test/helper.test.cjs
-sh myanyagent/test/bootstrap.test.sh
-sh myanyagent/test/status.test.sh
+node --test test/helper.test.cjs
+sh test/bootstrap.test.sh
+sh test/status.test.sh
 ```

@@ -43,7 +43,7 @@ if [ -d "$tool_dir" ] && [ -f "$bin_dir/myanyagent-credential-helper.cjs" ]; the
 else
   printf 'tool: NOT installed\n'
   printf 'install the tool first, then run myanyagent-bootstrap\n'
-  printf '%s\n' "-> run: sh myanyagent/install.sh"
+  printf '%s\n' "-> run: sh install.sh"
   exit 0
 fi
 

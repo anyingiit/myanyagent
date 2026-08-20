@@ -1,5 +1,5 @@
 # MyAnyAgent machine-level configuration
-# Installed by myanyagent/install.sh to ~/.config/myanyagent/config.toml
+# Installed by install.sh to ~/.config/myanyagent/config.toml
 # These values are shared across all repos using the MyAnyAgent GitHub App.
 
 # GitHub App Client ID (public identifier, used as JWT issuer)

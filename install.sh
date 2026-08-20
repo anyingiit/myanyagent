@@ -11,7 +11,7 @@ script_dir=""
 if [ -f "$0" ] && [ -d "$(dirname "$0")/bin" ]; then
   script_dir=$(dirname "$0")
 else
-  fail 'run from the myanyagent repo (myanyagent/install.sh) or download the full directory'
+  fail 'run from the myanyagent repo (install.sh) or download the full directory'
 fi
 
 target_dir="$HOME/.local/share/myanyagent"
