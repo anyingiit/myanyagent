@@ -1,7 +1,10 @@
 # Contributing to third-party public repos — capability research & failure record
 
-> Status: **researched, empirically verified, and concluded — do not re-litigate.**
-> Date: 2026-08-12. Target tested: `debpalash/VoiceStudio` (user-owned public repo, App not installed there).
+> Status: **superseded by the layered model below (implemented 2026-08-21).**
+> The capability matrix and failure record remain valid; the operating model
+> has changed from "human in the browser" to "`myanyagent-upstream` adapter".
+> Research date: 2026-08-12. Target tested: `debpalash/VoiceStudio` (user-owned
+> public repo, App not installed there).
 
 ## Goal
 
@@ -94,3 +97,50 @@ account (`@anyingiit`).
   manually in the browser. Device Flow remains enabled on the App settings
   (harmless; no tokens stored) and the OAuth authorization record can be revoked
   at github.com/settings/applications.
+
+## Adopted model (2026-08-21): layered identity
+
+The failure record above stands — nothing in it changed. What changed is the
+conclusion: full automation was abandoned because "bot identity for everything"
+conflicts with the actual goal (human attribution). The primitive decomposition
+shows the gap is narrow, and a human-scoped credential fills it directly:
+
+| Primitive operation | Resource owner | Credential that works |
+|---|---|---|
+| Read upstream code / review feedback | upstream (public) | none needed |
+| Push commits to your fork | your account | **App IAT (existing helper)** — installation covers `repository_selection: all` |
+| Commit authorship (attribution) | git object | **local git config** — orthogonal to auth |
+| Fork upstream / open PR / comment / reply / resolve thread | upstream | **classic PAT `public_repo` (only option)** |
+| Create issue on upstream | upstream | IAT works without installation (verified), PAT also works |
+
+Key verifications behind this model (docs.github.com, first-hand):
+
+- Fine-grained PATs cannot write third-party public repos: *"Only personal
+  access tokens (classic) have write access for public repositories that are
+  not owned by you or an organization that you are not a member of."*
+- Opening a PR upstream only requires write access to the **head branch**
+  (your fork): *"you must have write access to the head or the source branch."*
+- Contributors lists and the profile contribution graph attribute by **commit
+  author email**: *"GitHub identifies contributors by author email address."*
+  `Co-authored-by` trailers do NOT add entries to the repository Contributors
+  list (verified empirically on `debpalash/VoiceStudio`, 1619 commits scanned;
+  e.g. `myanyagent[bot]` = exactly its 3 authored commits, `anyingiit` absent
+  from the list despite having opened PR #1508 because the bot authored the
+  commits).
+
+Implementation:
+
+- `bin/myanyagent-upstream.cjs` — allowlisted API adapter holding the human
+  PAT (0600 file, never in argv/remote URLs; writes are dry-run without
+  `--yes`). Subcommands: `status`, `identity`, `reviews`, `threads`,
+  `notifications` (read); `fork`, `pr create`, `comment`, `reply`, `resolve`
+  (write). `threads`/`resolve` wrap the GraphQL-only `resolveReviewThread`
+  mutation, which has no REST or `gh` equivalent (cli/cli#12419).
+- `[identity]` section in `.myanyagent.toml` — contribution worktrees declare
+  the human's `name`/`email`; bootstrap writes them instead of the bot
+  identity and adds the toml to `.git/info/exclude` so it never enters a PR
+  diff. `myanyagent-status` reports drift between declared and configured
+  identity.
+- Rate-limit discipline is mandatory for unattended use: content-creation
+  endpoints have secondary limits, and continuing while limited "may result
+  in the banning of your integration" (REST rate-limit docs).

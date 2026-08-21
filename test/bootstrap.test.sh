@@ -84,4 +84,61 @@ MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
 [ "$(git config --local user.name)" = "MyAnyAgent[bot]" ] || fail "idempotent run broke user.name"
 printf 'PASS: idempotent\n'
 
+# --- Test 6: [identity] section overrides bot identity + protects the toml ---
+# A contribution worktree declares the human's identity; commits must be
+# attributed to the human, and .myanyagent.toml must never enter the PR diff.
+git init -q "$TMPDIR/repo2" || fail "git init repo2 failed"
+cd "$TMPDIR/repo2"
+# Deliberately put [identity] BEFORE [bot]: section parsing must not confuse them.
+cat > .myanyagent.toml <<EOF
+repository = "anyingiit/My_Nexus-Editor_Workspace"
+installation_id = "151195329"
+[identity]
+name = "anyingiit"
+email = "42+anyingiit@users.noreply.github.com"
+[bot]
+name = "MyAnyAgent[bot]"
+email = "312959697+myanyagent[bot]@users.noreply.github.com"
+EOF
+git remote add origin "https://github.com/anyingiit/My_Nexus-Editor_Workspace.git" || fail "remote add repo2 failed"
+MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
+[ "$(git config --local user.name)" = "anyingiit" ] || fail "identity: user.name should be human, got: $(git config --local user.name)"
+[ "$(git config --local user.email)" = "42+anyingiit@users.noreply.github.com" ] || fail "identity: user.email should be human, got: $(git config --local user.email)"
+[ "$(git config --local myanyagent.repository)" = "anyingiit/My_Nexus-Editor_Workspace" ] || fail "identity: myanyagent.repository not set"
+grep -qxF '.myanyagent.toml' .git/info/exclude || fail "identity: .myanyagent.toml not added to .git/info/exclude"
+printf 'PASS: [identity] overrides bot identity and excludes toml\n'
+
+# --- Test 7: bot-only toml does NOT touch .git/info/exclude ---
+cd "$TMPDIR/repo"
+if [ -f .git/info/exclude ] && grep -qxF '.myanyagent.toml' .git/info/exclude; then
+  fail "bot-only mode must not add .myanyagent.toml to .git/info/exclude"
+fi
+printf 'PASS: bot-only mode leaves .git/info/exclude alone\n'
+
+# --- Test 8: contribution mode works in a LINKED worktree (.git is a file) ---
+# git worktree: .git is a gitdir file, so $root/.git/info/exclude does not exist;
+# the exclude file lives in the main repo's git dir. Realistic flow: the toml is
+# excluded from commits, so the worktree is created WITHOUT it and the agent
+# writes it fresh (uncommitted) before bootstrap.
+cd "$TMPDIR/repo2"
+git commit -q --allow-empty -m "base" || fail "base commit in repo2 failed"
+git worktree add -q "$TMPDIR/wt" -b contribution-test 2>/dev/null || fail "git worktree add failed"
+cd "$TMPDIR/wt"
+cat > .myanyagent.toml <<EOF
+repository = "anyingiit/My_Nexus-Editor_Workspace"
+installation_id = "151195329"
+[bot]
+name = "MyAnyAgent[bot]"
+email = "312959697+myanyagent[bot]@users.noreply.github.com"
+[identity]
+name = "anyingiit"
+email = "42+anyingiit@users.noreply.github.com"
+EOF
+MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
+[ "$(git config --local user.email)" = "42+anyingiit@users.noreply.github.com" ] || fail "worktree: identity not written"
+main_exclude=$(cd "$TMPDIR/repo2" && git rev-parse --git-path info/exclude)
+case "$main_exclude" in /*) ;; *) main_exclude="$TMPDIR/repo2/$main_exclude";; esac
+grep -qxF '.myanyagent.toml' "$main_exclude" || fail "worktree: exclude not written to $main_exclude"
+printf 'PASS: contribution mode works in a linked worktree\n'
+
 printf '\nALL bootstrap tests passed\n'

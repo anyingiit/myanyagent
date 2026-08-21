@@ -57,11 +57,43 @@ No command memorization required; the tool self-describes the next step.
 | `myanyagent-bootstrap` | Configure local `.git/config` from `.myanyagent.toml` + machine config |
 | `myanyagent-status` | Read-only state report with `-> run:` hints |
 | `myanyagent-helper` | Git credential helper (called by git, not directly) |
+| `myanyagent-upstream` | Allowlisted GitHub API adapter for third-party public-repo contributions |
+
+## Contributing to third-party public repos
+
+The App installation token can only act on repositories covered by the App's
+installations. For upstream repos you do not control, a separate, deliberately
+small adapter is used:
+
+- **Git transport** (push to your own forks) stays on the App credential
+  helper — unchanged.
+- **Upstream API writes** (create fork, open PR, comment, reply to review
+  threads, resolve threads) go through `myanyagent-upstream`, which holds a
+  classic PAT (`public_repo`) for the human account at
+  `~/.secrets/myanyagent-upstream.pat` (mode 0600). Every write is a dry-run
+  unless `--yes` is passed; only a fixed allowlist of endpoints is callable.
+- **Commit attribution** is orthogonal to authentication. A worktree that
+  feeds PRs upstream declares the human's identity in `.myanyagent.toml`:
+
+  ```toml
+  [identity]
+  name = "your-username"
+  email = "<id>+your-username@users.noreply.github.com"
+  ```
+
+  `myanyagent-bootstrap` then writes the human identity (not the bot's) into
+  git config, and adds `.myanyagent.toml` to `.git/info/exclude` so it never
+  enters a PR diff. `myanyagent-upstream identity` prints the exact git config
+  lines (and the ID-based noreply address) for the PAT's account.
+
+See `docs/contributing-to-third-party-repos.md` for the full capability
+research and failure record behind this design.
 
 ## Tests
 
 ```sh
 node --test test/helper.test.cjs
+node --test test/upstream.test.cjs
 sh test/bootstrap.test.sh
 sh test/status.test.sh
 ```

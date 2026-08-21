@@ -30,6 +30,8 @@ done
 # Install tool
 mkdir -p "$target_bin" "$config_dir" "$local_bin"
 cp "$script_dir/bin/myanyagent-credential-helper.cjs" "$target_bin/"
+cp "$script_dir/bin/myanyagent-upstream.cjs" "$target_bin/"
+chmod +x "$target_bin/myanyagent-upstream.cjs"
 cp "$script_dir/bin/myanyagent-bootstrap.sh" "$target_bin/"
 chmod +x "$target_bin/myanyagent-bootstrap.sh"
 cp "$script_dir/bin/myanyagent-status.sh" "$target_bin/"
@@ -40,6 +42,7 @@ cp "$script_dir/VERSION" "$target_dir/VERSION"
 ln -sf "$target_bin/myanyagent-bootstrap.sh" "$local_bin/myanyagent-bootstrap"
 ln -sf "$target_bin/myanyagent-status.sh" "$local_bin/myanyagent-status"
 ln -sf "$target_bin/myanyagent-credential-helper.cjs" "$local_bin/myanyagent-helper"
+ln -sf "$target_bin/myanyagent-upstream.cjs" "$local_bin/myanyagent-upstream"
 
 # Config: preserve existing unless --reset-config
 if [ ! -f "$config_file" ] || $reset_config; then

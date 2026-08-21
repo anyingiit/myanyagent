@@ -10,3 +10,9 @@ app_id = "4483813"
 
 # Default private key path. Override per-invocation with MYANYAGENT_PRIVATE_KEY env var.
 private_key = "~/.secrets/myanyagent.2026-08-04.private-key.pem"
+
+# Third-party public-repo contributions (myanyagent-upstream):
+# a classic PAT (scope: public_repo) for the HUMAN account lives at
+#   ~/.secrets/myanyagent-upstream.pat   (mode 0600, provision separately, never commit)
+# Override per-invocation with MYANYAGENT_UPSTREAM_TOKEN env var.
+# No secret is ever stored in this file.

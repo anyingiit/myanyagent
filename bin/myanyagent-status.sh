@@ -82,6 +82,19 @@ fi
 
 needs_action=false
 
+# Contribution identity: [identity] in .myanyagent.toml means this worktree feeds
+# PRs to an upstream repo — commits must be authored by the human, not the bot.
+identity_email=$(sed -n '/^\[identity\]/,/^\[/p' "$toml" | sed -n 's/^[[:space:]]*email[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' | head -1)
+if [ -n "$identity_email" ] && [ -n "$repo_root" ]; then
+  cfg_email=$(git config --local --get user.email 2>/dev/null || true)
+  if [ "$cfg_email" = "$identity_email" ]; then
+    printf 'identity: contribution (%s)\n' "$cfg_email"
+  else
+    printf 'identity: MISMATCH (want %s, configured %s)\n' "$identity_email" "${cfg_email:-unset}"
+    needs_action=true
+  fi
+fi
+
 if $configured; then
   printf 'git config: configured\n'
 else

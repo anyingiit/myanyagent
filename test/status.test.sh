@@ -86,4 +86,23 @@ echo "$out" | grep -q -- "-> run:" && fail "should NOT emit -> run: when all gre
 printf 'PASS: all-green path emits OK with no -> run:\n'
 rm -rf "$TESTHOME" "$TMPDIR/dummy.pem"
 
+# --- Test 6: [identity] in toml + matching git config -> contribution identity line ---
+cat >> .myanyagent.toml <<EOF
+[identity]
+name = "anyingiit"
+email = "42+anyingiit@users.noreply.github.com"
+EOF
+git config --local user.name "anyingiit"
+git config --local user.email "42+anyingiit@users.noreply.github.com"
+out=$(sh "$STATUS" 2>&1) || true
+echo "$out" | grep -qF "identity: contribution (42+anyingiit@users.noreply.github.com)" || fail "should report contribution identity, got: $out"
+printf 'PASS: [identity] reported as contribution identity\n'
+
+# --- Test 7: identity mismatch -> MISMATCH + action hint ---
+git config --local user.email "312959697+myanyagent[bot]@users.noreply.github.com"
+out=$(sh "$STATUS" 2>&1) || true
+echo "$out" | grep -q "identity: MISMATCH" || fail "should report identity MISMATCH, got: $out"
+echo "$out" | grep -q -- "-> run:" || fail "identity mismatch should emit -> run: hint"
+printf 'PASS: identity mismatch reported with action hint\n'
+
 printf '\nALL status tests passed\n'
