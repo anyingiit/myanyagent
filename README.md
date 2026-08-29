@@ -37,6 +37,9 @@ never commit).
 4. Run `myanyagent-bootstrap` in the repo.
 5. `git push` to verify.
 
+Offline/air-gapped machines can skip bootstrap's credential smoke test (which
+needs GitHub access) with `MYANYAGENT_SKIP_SMOKE_TEST=1`.
+
 ## Agent Discovery (how AI agents learn the tool)
 
 The tool is designed for agent use with zero prior knowledge:

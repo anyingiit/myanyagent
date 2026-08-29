@@ -37,14 +37,16 @@ email = "312959697+myanyagent[bot]@users.noreply.github.com"
 EOF
 git remote add origin "https://github.com/anyingiit/My_Nexus-Editor_Workspace.git" || fail "remote add failed"
 
-# Generate a dummy key so the key-exists check passes; the credential smoke
-# test will fail (dummy key + real GitHub) but config + hook are written first.
+# Generate a dummy key so the key-exists check passes. The credential smoke
+# test is skipped (MYANYAGENT_SKIP_SMOKE_TEST=1) so bootstrap is fully offline
+# and must SUCCEED (exit 0) with config + hook written.
 KEY="$TMPDIR/dummy.pem"
 openssl genrsa -out "$KEY" 2048 2>/dev/null || fail "openssl genrsa failed"
 
 BOOTS="$TESTHOME/.local/share/myanyagent/bin/myanyagent-bootstrap.sh"
 [ -f "$BOOTS" ] || fail "bootstrap not installed"
-HOME="$TESTHOME" MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" >/dev/null 2>&1 || true
+HOME="$TESTHOME" MYANYAGENT_PRIVATE_KEY="$KEY" MYANYAGENT_SKIP_SMOKE_TEST=1 sh "$BOOTS" >/dev/null 2>&1 \
+  || fail "bootstrap failed (must exit 0 offline with the smoke test skipped)"
 
 # Commit with the hook active; MYANYAGENT_LIB must NOT be set (assert it).
 [ -z "${MYANYAGENT_LIB:-}" ] || fail "MYANYAGENT_LIB unexpectedly set in test env"

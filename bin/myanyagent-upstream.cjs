@@ -61,14 +61,23 @@ for (const cand of [
 //   2. local branch `<base>`, else
 //   3. `<base>` as any other local ref (e.g. `upstream/<base>`), else
 //   4. FAIL CLOSED — cannot resolve the base locally, `git fetch` first.
-// This is independent of push state: `git push -u origin <head>` before
-// pr create does not shrink the range (C2).
+// The head ref is resolved the same way (local branch `refs/heads/<head>`,
+// else `<head>` as any other local ref) and also fails closed, with a
+// `git fetch origin <head>` hint, if it cannot be found locally.
 //
-// Only the unresolvable-base case fails closed. Other git failures stay soft
-// (ok:true, total:0) so odd repos or transient errors never break the API flow.
+// FAIL-CLOSED CONTRACT (INF-14): the gate enforces; any state in which it
+// cannot determine and inspect the range is a refusal ({ok:false}), never a
+// silent pass. That covers an unresolvable base OR head, a HEAD that cannot be
+// read (not inside a repo / broken repo), git commands failing, and a missing
+// trailer. The ONLY {ok:true,total:0} outcome is a legitimately empty range
+// (head == base / no commits ahead). This is independent of push state:
+// `git push -u origin <head>` before pr create does not shrink the range (C2).
 function checkAttribution({ cwd, trailer, base, headBranch }) {
-  const empty = { ok: true, missing: [], total: 0 };
-  if (!trailer) return empty;
+  const failClosed = (error, extra = {}) =>
+    ({ ok: false, missing: [], total: 0, ...extra, error });
+  if (!trailer) {
+    return failClosed("cannot run attribution gate: no resolved Co-authored-by trailer");
+  }
   const git = (args, opts = {}) =>
     execFileSync("git", args, {
       cwd,
@@ -79,13 +88,14 @@ function checkAttribution({ cwd, trailer, base, headBranch }) {
     });
 
   let branch;
-  try {
-    branch = git(["rev-parse", "--abbrev-ref", "HEAD"]).trim();
-  } catch {
-    return empty;
-  }
-  if (headBranch && headBranch !== branch) {
+  if (headBranch) {
     branch = headBranch;
+  } else {
+    try {
+      branch = git(["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+    } catch {
+      return failClosed("cannot resolve HEAD (not inside a git repository?)");
+    }
   }
 
   const verify = (ref) => {
@@ -96,27 +106,32 @@ function checkAttribution({ cwd, trailer, base, headBranch }) {
       return false;
     }
   };
+  if (!verify(`refs/heads/${branch}`) && !verify(branch)) {
+    return failClosed(`cannot resolve head branch '${branch}' locally; run git fetch origin ${branch} first`, {
+      base: base || null,
+      branch,
+    });
+  }
   let baseRef = null;
   if (base) {
     if (verify(`refs/remotes/origin/${base}`)) baseRef = `origin/${base}`;
     else if (verify(`refs/heads/${base}`)) baseRef = base;
     else if (verify(base)) baseRef = base; // any other local ref (e.g. upstream/<base>)
     else
-      return {
-        ok: false,
-        missing: [],
-        total: 0,
+      return failClosed(`cannot resolve base ref '${base}' locally; run git fetch origin ${base} first`, {
         base,
         branch,
-        error: `cannot resolve base ref '${base}' locally; run git fetch origin ${base} first`,
-      };
+      });
   }
 
   let raw;
   try {
     raw = git(["log", "--format=%H%x00%s%x00%B%x00END", baseRef ? `${baseRef}..${branch}` : "HEAD"]);
   } catch {
-    return empty;
+    return failClosed(`git log failed while inspecting ${baseRef ? `${baseRef}..${branch}` : "HEAD"}`, {
+      base: baseRef || null,
+      branch,
+    });
   }
   const commits = raw
     .split("\u0000END\n")

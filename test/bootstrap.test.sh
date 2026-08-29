@@ -55,15 +55,15 @@ if MYANYAGENT_PRIVATE_KEY="/nonexistent/key.pem" sh "$BOOTS" 2>/dev/null; then
 fi
 printf 'PASS: missing private key rejected\n'
 
-# --- Test 4: writes correct .git/config when key exists (dry-run: skip smoke test) ---
+# --- Test 4: writes correct .git/config when key exists (offline: skip smoke test) ---
 # Generate a dummy RSA key so the key-exists check passes.
 KEY="$TMPDIR/dummy.pem"
 openssl genrsa -out "$KEY" 2048 2>/dev/null || fail "openssl genrsa failed"
 
-# We expect bootstrap to fail at the smoke test (token mint will fail with a dummy
-# key against the real GitHub API), but we verify .git/config was written first.
-# Run bootstrap and capture output; it should write config before smoke test.
-MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>"$TMPDIR/err" || true
+# The smoke test is skipped (MYANYAGENT_SKIP_SMOKE_TEST=1) so bootstrap is fully
+# offline and must succeed (exit 0) having written .git/config first.
+MYANYAGENT_PRIVATE_KEY="$KEY" MYANYAGENT_SKIP_SMOKE_TEST=1 sh "$BOOTS" 2>"$TMPDIR/err" \
+  || fail "bootstrap failed (must exit 0 offline with the smoke test skipped)"
 
 # Verify git config was written
 [ "$(git config --local user.name)" = "MyAnyAgent[bot]" ] || fail "user.name not set"
@@ -79,7 +79,8 @@ echo "$HELPER" | grep -q "myanyagent-credential-helper" || fail "credential.help
 printf 'PASS: git config written correctly\n'
 
 # --- Test 5: idempotent (second run produces same config) ---
-MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
+MYANYAGENT_PRIVATE_KEY="$KEY" MYANYAGENT_SKIP_SMOKE_TEST=1 sh "$BOOTS" 2>/dev/null \
+  || fail "idempotent run failed"
 [ "$(git config --local myanyagent.repository)" = "anyingiit/My_Nexus-Editor_Workspace" ] || fail "idempotent run broke repository"
 [ "$(git config --local user.name)" = "MyAnyAgent[bot]" ] || fail "idempotent run broke user.name"
 printf 'PASS: idempotent\n'
@@ -101,7 +102,8 @@ name = "MyAnyAgent[bot]"
 email = "312959697+myanyagent[bot]@users.noreply.github.com"
 EOF
 git remote add origin "https://github.com/anyingiit/My_Nexus-Editor_Workspace.git" || fail "remote add repo2 failed"
-MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
+MYANYAGENT_PRIVATE_KEY="$KEY" MYANYAGENT_SKIP_SMOKE_TEST=1 sh "$BOOTS" 2>/dev/null \
+  || fail "bootstrap (identity) failed"
 [ "$(git config --local user.name)" = "anyingiit" ] || fail "identity: user.name should be human, got: $(git config --local user.name)"
 [ "$(git config --local user.email)" = "42+anyingiit@users.noreply.github.com" ] || fail "identity: user.email should be human, got: $(git config --local user.email)"
 [ "$(git config --local myanyagent.repository)" = "anyingiit/My_Nexus-Editor_Workspace" ] || fail "identity: myanyagent.repository not set"
@@ -134,7 +136,8 @@ email = "312959697+myanyagent[bot]@users.noreply.github.com"
 name = "anyingiit"
 email = "42+anyingiit@users.noreply.github.com"
 EOF
-MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
+MYANYAGENT_PRIVATE_KEY="$KEY" MYANYAGENT_SKIP_SMOKE_TEST=1 sh "$BOOTS" 2>/dev/null \
+  || fail "worktree bootstrap failed"
 [ "$(git config --local user.email)" = "42+anyingiit@users.noreply.github.com" ] || fail "worktree: identity not written"
 main_exclude=$(cd "$TMPDIR/repo2" && git rev-parse --git-path info/exclude)
 case "$main_exclude" in /*) ;; *) main_exclude="$TMPDIR/repo2/$main_exclude";; esac
@@ -155,7 +158,8 @@ exit 0
 H
 chmod +x "$TOOLHOME/.local/share/myanyagent/hooks/prepare-commit-msg"
 
-HOME="$TOOLHOME" MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
+HOME="$TOOLHOME" MYANYAGENT_PRIVATE_KEY="$KEY" MYANYAGENT_SKIP_SMOKE_TEST=1 sh "$BOOTS" 2>/dev/null \
+  || fail "hook bootstrap failed"
 
 hooks_path=$(git config --get core.hooksPath 2>/dev/null) || fail "core.hooksPath not set by bootstrap"
 [ -n "$hooks_path" ] || fail "core.hooksPath empty"
@@ -166,7 +170,8 @@ grep -qF '# MyAnyAgent prepare-commit-msg hook' "$resolved/prepare-commit-msg" |
 printf 'PASS: bootstrap installs attribution hook\n'
 
 # --- Test 9b: idempotent re-run does not duplicate or clobber ---
-HOME="$TOOLHOME" MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
+HOME="$TOOLHOME" MYANYAGENT_PRIVATE_KEY="$KEY" MYANYAGENT_SKIP_SMOKE_TEST=1 sh "$BOOTS" 2>/dev/null \
+  || fail "idempotent hook bootstrap failed"
 [ "$(git config --get core.hooksPath)" = "$hooks_path" ] || fail "hooksPath changed on re-run"
 printf 'PASS: hook install idempotent\n'
 rm -rf "$TOOLHOME"
@@ -207,7 +212,8 @@ installation_id = "151195329"
 name = "MyAnyAgent[bot]"
 email = "312959697+myanyagent[bot]@users.noreply.github.com"
 EOF
-HOME="$TOOLHOME3" MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
+HOME="$TOOLHOME3" MYANYAGENT_PRIVATE_KEY="$KEY" MYANYAGENT_SKIP_SMOKE_TEST=1 sh "$BOOTS" 2>/dev/null \
+  || fail "worktree3 bootstrap failed"
 
 # Linked worktree: hooksPath lives in the worktree config, not the shared local config.
 [ -n "$(git config --worktree --get core.hooksPath 2>/dev/null || true)" ] \
@@ -227,5 +233,63 @@ git log -1 --format=%B | grep -qF 'Co-authored-by: MyAnyAgent[bot] <312959697+my
   || fail "linked worktree commit missing trailer"
 printf 'PASS: linked worktree gets per-worktree hooksPath, main unaffected\n'
 rm -rf "$TOOLHOME3"
+
+# --- Test 11: old git (< 2.20, no per-worktree config) is refused, not regressed ---
+# The --local fallback is GONE (I4): when `extensions.worktreeConfig` cannot be
+# enabled, bootstrap must warn, install NO hook, and NOT write any --local
+# core.hooksPath (which would pollute the config SHARED by all worktrees).
+# Simulate an old git with a PATH shim that fails exactly on the per-worktree
+# config attempts and delegates everything else to the real git.
+REAL_GIT=$(command -v git)
+FAKEBIN="$TMPDIR/fakebin"
+mkdir -p "$FAKEBIN"
+cat > "$FAKEBIN/git" <<SH
+#!/bin/sh
+if [ "\$1" = "config" ]; then
+  case " \$* " in
+    *" extensions.worktreeConfig "*|*" --worktree "*) echo "fake git: per-worktree config unavailable" >&2; exit 1 ;;
+  esac
+fi
+exec "$REAL_GIT" "\$@"
+SH
+chmod +x "$FAKEBIN/git"
+
+git init -q "$TMPDIR/repo4" || fail "git init repo4 failed"
+cd "$TMPDIR/repo4"
+git config --global user.email "test@test.test" 2>/dev/null || true
+git config --global user.name "Test" 2>/dev/null || true
+cat > .myanyagent.toml <<EOF
+repository = "anyingiit/My_Nexus-Editor_Workspace"
+installation_id = "151195329"
+[bot]
+name = "MyAnyAgent[bot]"
+email = "312959697+myanyagent[bot]@users.noreply.github.com"
+EOF
+git remote add origin "https://github.com/anyingiit/My_Nexus-Editor_Workspace.git" || fail "remote add repo4 failed"
+
+TOOLHOME4=$(mktemp -d)
+mkdir -p "$TOOLHOME4/.local/share/myanyagent/bin" "$TOOLHOME4/.local/share/myanyagent/hooks"
+cp "$(cd "$(dirname "$BOOTS")" && pwd)/myanyagent-credential-helper.cjs" "$TOOLHOME4/.local/share/myanyagent/bin/"
+printf '1' > "$TOOLHOME4/.local/share/myanyagent/VERSION"
+cat > "$TOOLHOME4/.local/share/myanyagent/hooks/prepare-commit-msg" <<'H'
+#!/bin/sh
+# MyAnyAgent prepare-commit-msg hook
+exit 0
+H
+chmod +x "$TOOLHOME4/.local/share/myanyagent/hooks/prepare-commit-msg"
+
+PATH="$FAKEBIN:$PATH" HOME="$TOOLHOME4" MYANYAGENT_PRIVATE_KEY="$KEY" MYANYAGENT_SKIP_SMOKE_TEST=1 \
+  sh "$BOOTS" 2>"$TMPDIR/oldgit.err" || fail "bootstrap must still exit 0 when the hook is skipped (old git)"
+grep -qF 'git too old for per-worktree core.hooksPath' "$TMPDIR/oldgit.err" \
+  || fail "old-git fallback warning missing on stderr"
+[ -z "$(git config --local --get core.hooksPath 2>/dev/null || true)" ] \
+  || fail "old git: bootstrap must NOT write --local core.hooksPath (I4)"
+[ -z "$(git config --get core.hooksPath 2>/dev/null || true)" ] \
+  || fail "old git: core.hooksPath must not be set anywhere"
+old_hook_dir=$(git rev-parse --git-path myanyagent-hooks)
+[ ! -e "$old_hook_dir/prepare-commit-msg" ] \
+  || fail "old git: hook must NOT be installed when per-worktree config is unavailable"
+printf 'PASS: old-git fallback removed — warning, no --local hooksPath, hook skipped, exit 0\n'
+rm -rf "$TOOLHOME4" "$FAKEBIN"
 
 printf '\nALL bootstrap tests passed\n'

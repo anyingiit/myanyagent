@@ -131,32 +131,44 @@ if [ -f "$hook_src" ]; then
       # across worktrees); unset it so the per-worktree value is not shadowed.
       git config --local --unset core.hooksPath >/dev/null 2>&1 || true
     else
-      printf 'myanyagent: warning: git too old for per-worktree core.hooksPath; falling back to --local\n' >&2
-      git config --local core.hooksPath "$(git rev-parse --git-path myanyagent-hooks)"
+      # git < 2.20 cannot do per-worktree core.hooksPath. Writing it with
+      # --local would touch the config file SHARED by all worktrees, so a
+      # linked-worktree bootstrap would re-introduce the I4 bug (polluting the
+      # main worktree's hooks path). Refuse rather than regress: warn, install
+      # nothing. The pr create gate (L4) still enforces attribution.
+      printf 'myanyagent: warning: git too old for per-worktree core.hooksPath (need >= 2.20); attribution hook NOT installed. Upgrade git and re-run bootstrap, or install the hook manually.\n' >&2
+      hooks_dir=""
     fi
   fi
-  mkdir -p "$hooks_dir"
-  hook_dst="$hooks_dir/prepare-commit-msg"
-  if [ -f "$hook_dst" ] && ! grep -qF '# MyAnyAgent prepare-commit-msg hook' "$hook_dst" 2>/dev/null; then
-    printf 'Attribution hook: NOT installed (foreign prepare-commit-msg exists at %s)\n' "$hook_dst"
-  else
-    cp "$hook_src" "$hook_dst"
-    chmod +x "$hook_dst"
-    printf 'Attribution hook: installed (prepare-commit-msg auto-appends Co-authored-by).\n'
+  if [ -n "$hooks_dir" ]; then
+    mkdir -p "$hooks_dir"
+    hook_dst="$hooks_dir/prepare-commit-msg"
+    if [ -f "$hook_dst" ] && ! grep -qF '# MyAnyAgent prepare-commit-msg hook' "$hook_dst" 2>/dev/null; then
+      printf 'Attribution hook: NOT installed (foreign prepare-commit-msg exists at %s)\n' "$hook_dst"
+    else
+      cp "$hook_src" "$hook_dst"
+      chmod +x "$hook_dst"
+      printf 'Attribution hook: installed (prepare-commit-msg auto-appends Co-authored-by).\n'
+    fi
   fi
 fi
 
-# Smoke test
-credential_result=$(
-  printf 'protocol=https\nhost=github.com\npath=%s.git\n\n' "$repository" |
-    GIT_TERMINAL_PROMPT=0 git credential fill |
-    node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const f=Object.fromEntries(s.trim().split(/\n/).map(x=>x.split(/=(.*)/s,2)));if(f.username!=="x-access-token"||!f.password)process.exit(1);process.stdout.write(f.username+"|"+f.password.length)})'
-) || fail 'GitHub App credential smoke test failed (token mint error)'
+# Smoke test — skippable for offline/air-gapped bootstrap
+if [ "${MYANYAGENT_SKIP_SMOKE_TEST:-}" = "1" ]; then
+  smoke_status='Credential smoke test: SKIPPED (MYANYAGENT_SKIP_SMOKE_TEST=1)'
+else
+  credential_result=$(
+    printf 'protocol=https\nhost=github.com\npath=%s.git\n\n' "$repository" |
+      GIT_TERMINAL_PROMPT=0 git credential fill |
+      node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const f=Object.fromEntries(s.trim().split(/\n/).map(x=>x.split(/=(.*)/s,2)));if(f.username!=="x-access-token"||!f.password)process.exit(1);process.stdout.write(f.username+"|"+f.password.length)})'
+  ) || fail 'GitHub App credential smoke test failed (token mint error)'
 
-case "$credential_result" in
-  x-access-token\|[1-9]*) ;;
-  *) fail "credential smoke test returned an unexpected result" ;;
-esac
+  case "$credential_result" in
+    x-access-token\|[1-9]*) ;;
+    *) fail "credential smoke test returned an unexpected result" ;;
+  esac
+  smoke_status=$(printf 'Credential smoke test: username=x-access-token, token length=%s.' "${credential_result#*|}")
+fi
 
 printf 'MyAnyAgent Git identity and repository-local App authentication configured.\n'
 if $contribution_mode; then
@@ -169,4 +181,4 @@ if $contribution_mode; then
 else
   printf 'Identity: %s <%s>.\n' "$author_name" "$author_email"
 fi
-printf 'Credential smoke test: username=x-access-token, token length=%s.\n' "${credential_result#*|}"
+printf '%s\n' "$smoke_status"

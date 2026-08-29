@@ -183,16 +183,20 @@ test("reply --yes hits the review-comment replies endpoint", async () => {
 });
 
 test("pr create composes head as <login>:<branch> learned from GET /user", async () => {
+  const { root, dir, git } = gateRepo();
+  // The gate is fail-closed: --head-branch must resolve as a LOCAL ref, so the
+  // named branch must exist locally (fix-x == main -> legitimately empty range).
+  git(["checkout", "-q", "-b", "fix-x"]);
   route = ({ url }) =>
     url === "/user"
       ? { status: 200, json: { login: "me", id: 42 } }
       : { status: 201, json: { number: 5, html_url: "https://example/pr/5" } };
-  const f = path.join(tmpHome(), "body.md");
+  const f = path.join(dir, "body.md");
   fs.writeFileSync(f, "pr body\n");
   const r = await run([
     "pr", "create", "--repo", "o/r", "--base", "main",
     "--head-branch", "fix-x", "--title", "My fix", "--body-file", f, "--yes",
-  ], { cwd: tmpHome() });
+  ], { cwd: dir });
   assert.equal(r.status, 0, r.stderr);
   const prHit = hits.find((h) => h.url === "/repos/o/r/pulls");
   assert.ok(prHit, "pulls endpoint was called");
@@ -202,6 +206,7 @@ test("pr create composes head as <login>:<branch> learned from GET /user", async
   assert.equal(sent.title, "My fix");
   assert.equal(sent.body, "pr body\n");
   assert.match(r.stdout, /number 5|#5/);
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 // --- GraphQL review-thread workflow ---
@@ -307,18 +312,21 @@ test("the token never appears in stdout or stderr (dry-run and error paths)", as
 });
 
 test("flag values starting with -- are consumed as values, not flags", async () => {
+  const { root, dir, git } = gateRepo();
+  git(["checkout", "-q", "-b", "fix"]);
   route = ({ url }) =>
     url === "/user"
       ? { status: 200, json: { login: "me", id: 42 } }
       : { status: 200, json: {} };
-  const f = path.join(tmpHome(), "body.md");
+  const f = path.join(dir, "body.md");
   fs.writeFileSync(f, "b\n");
   const r = await run([
     "pr", "create", "--repo", "o/r", "--base", "main",
     "--head-branch", "fix", "--title", "--wip title", "--body-file", f,
-  ], { cwd: tmpHome() });
+  ], { cwd: dir });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /"title": "--wip title"/);
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test("reviews rejects a non-array 200 body with a clear error", async () => {
@@ -430,6 +438,63 @@ test("unresolvable base fails closed with a git fetch hint", () => {
   assert.match(r.error, /cannot resolve base ref 'release'/);
   assert.match(r.error, /git fetch origin release/);
   assert.equal(r.base, "release");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("--head-branch naming a branch that does not exist locally fails closed (INF-14)", () => {
+  const { root, dir, addCommit } = gateRepo();
+  const { checkAttribution } = require("../bin/myanyagent-upstream.cjs");
+  const trailer = "MyAnyAgent[bot] <b@b.c>";
+  addCommit("no trailer");
+  const r = checkAttribution({ cwd: dir, trailer, base: "main", headBranch: "does-not-exist" });
+  assert.equal(r.ok, false, "typo'd/nonexistent head branch must fail closed");
+  assert.equal(r.total, 0);
+  assert.equal(r.branch, "does-not-exist");
+  assert.match(r.error, /cannot resolve head branch 'does-not-exist'/);
+  assert.match(r.error, /git fetch origin does-not-exist/);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("head branch present only on the fork remote (no local ref) fails closed (INF-14)", () => {
+  const { root, dir, git } = gateRepo();
+  const { checkAttribution } = require("../bin/myanyagent-upstream.cjs");
+  const trailer = "MyAnyAgent[bot] <b@b.c>";
+  // Push a branch to origin, then delete its local branch: `remote-only`
+  // exists only as origin/remote-only and must NOT resolve as the head.
+  git(["checkout", "-q", "main"]);
+  git(["checkout", "-q", "-b", "remote-only"]);
+  fs.writeFileSync(path.join(dir, "r.txt"), "r\n");
+  git(["add", "r.txt"]);
+  git(["commit", "-q", "-m", "remote only", "--trailer", "Co-authored-by: MyAnyAgent[bot] <b@b.c>"]);
+  git(["push", "-q", "origin", "remote-only"]);
+  git(["checkout", "-q", "main"]);
+  git(["branch", "-D", "remote-only"]);
+  const r = checkAttribution({ cwd: dir, trailer, base: "main", headBranch: "remote-only" });
+  assert.equal(r.ok, false, "head only on the remote must fail closed, not silently pass");
+  assert.equal(r.total, 0);
+  assert.match(r.error, /cannot resolve head branch 'remote-only'/);
+  assert.match(r.error, /git fetch origin remote-only/);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("not inside a git repository fails closed (INF-14)", () => {
+  const { checkAttribution } = require("../bin/myanyagent-upstream.cjs");
+  const trailer = "MyAnyAgent[bot] <b@b.c>";
+  const r = checkAttribution({ cwd: tmpHome(), trailer, base: "main" });
+  assert.equal(r.ok, false, "no repo / unresolvable HEAD must fail closed, not soft-pass");
+  assert.equal(r.total, 0);
+  assert.match(r.error, /cannot resolve HEAD/);
+});
+
+test("a legitimately empty range (head == base) passes with total 0", () => {
+  const { root, dir } = gateRepo();
+  const { checkAttribution } = require("../bin/myanyagent-upstream.cjs");
+  const trailer = "MyAnyAgent[bot] <b@b.c>";
+  const r = checkAttribution({ cwd: dir, trailer, base: "main", headBranch: "feature" });
+  assert.equal(r.ok, true, "empty range is the one legit ok:true,total:0");
+  assert.equal(r.total, 0);
+  assert.equal(r.missing.length, 0);
+  assert.equal(r.branch, "feature");
   fs.rmSync(root, { recursive: true, force: true });
 });
 
