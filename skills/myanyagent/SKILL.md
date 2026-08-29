@@ -44,6 +44,28 @@ Git push/fetch auth is `myanyagent` exclusively: **no** `gh` CLI auth, no SSH ke
 4. Helper signs a JWT (`iss: client_id`, 9-min TTL), POSTs to `/app/installations/<id>/access_tokens`, returns `username=x-access-token` + `password=<token>`.
 5. Git uses token for HTTPS transport. Token is repo-scoped, `contents:write`, short-lived. No persistent credential store.
 
+## Commit Attribution Policy (mandatory)
+
+Every commit you create in a MyAnyAgent repo MUST disclose AI involvement with
+a trailer:
+
+```
+Co-authored-by: <resolved trailer>
+```
+
+Resolution order (same as the tooling): `MYANYAGENT_ATTRIBUTION` env >
+`[identity].co_author` in `.myanyagent.toml` > `[bot]` name/email.
+
+Rules:
+
+- Never omit the trailer. Never remove it from an existing commit message.
+- The `prepare-commit-msg` hook (installed by `myanyagent-bootstrap`) appends
+  it automatically — do not bypass hooks with `--no-verify`.
+- `myanyagent-upstream pr create` refuses to open a PR when local commits lack
+  the trailer. Fix history (rebase/amend) rather than bypassing.
+- The trailer discloses tool involvement; the human remains the sole author.
+  Do NOT add `Signed-off-by` on the human's behalf.
+
 ## Key Resolution (private key)
 
 1. `MYANYAGENT_PRIVATE_KEY` env var (absolute path)

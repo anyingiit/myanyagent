@@ -101,6 +101,13 @@ small adapter is used:
   git config, and adds `.myanyagent.toml` to `.git/info/exclude` so it never
   enters a PR diff. `myanyagent-upstream identity` prints the exact git config
   lines (and the ID-based noreply address) for the PAT's account.
+- **AI disclosure is enforced, not advisory.** Every commit carries a
+  `Co-authored-by:` trailer naming the agent. Bootstrap installs a
+  `prepare-commit-msg` hook that appends the resolved trailer automatically
+  (env `MYANYAGENT_ATTRIBUTION` > `[identity].co_author` > `[bot]` block), and
+  `myanyagent-upstream pr create` refuses to open a PR when local commits lack
+  it (`--skip-attribution-check` bypasses). `myanyagent-status` reports hook
+  state, the resolved trailer, and unpushed commits missing it.
 
 See `docs/contributing-to-third-party-repos.md` for the full capability
 research and failure record behind this design.

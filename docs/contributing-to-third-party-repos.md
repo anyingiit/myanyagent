@@ -144,3 +144,25 @@ Implementation:
 - Rate-limit discipline is mandatory for unattended use: content-creation
   endpoints have secondary limits, and continuing while limited "may result
   in the banning of your integration" (REST rate-limit docs).
+
+## Addendum (enforced attribution)
+
+The layered model above kept attribution advisory (a bootstrap "Tip"). That
+was identified as the weak point: prompts can be ignored, and no local
+mechanism can fully prevent a same-user agent from bypassing them. The adopted
+defense is layered enforcement:
+
+1. Skill rules (convention) — the agent is instructed the trailer is mandatory.
+2. `prepare-commit-msg` hook (automation) — the trailer is appended at commit
+   time regardless of what the agent wrote; `--no-verify` bypasses it, which
+   is why this layer is not the boundary.
+3. `myanyagent-status` (visibility) — drift between expected and actual state
+   is reported with `-> run:` remediation.
+4. `myanyagent-upstream pr create` (delivery gate) — the only layer the agent
+   cannot route around through this toolchain: commits that would leave the
+   machine without the trailer block PR creation.
+
+Residual risk, accepted by design: an agent with shell access can still commit
+and push without ever invoking `pr create` (e.g. direct push to an own-repo
+main branch is not gated). The hook + skill make that a deliberate multi-step
+violation rather than an omission.
