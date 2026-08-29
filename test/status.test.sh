@@ -78,6 +78,16 @@ git config --local myanyagent.repository "anyingiit/My_Nexus-Editor_Workspace"
 git config --local myanyagent.installationId "151195329"
 git config --local myanyagent.privateKey "$TMPDIR/dummy.pem"
 git config --local credential.helper '!node "/home/u/.local/share/myanyagent/bin/myanyagent-credential-helper.cjs"'
+# Attribution hook must be installed for the all-green path (bot toml resolves a
+# trailer, so a missing hook would now legitimately trigger needs_action).
+git config --local core.hooksPath "$(git rev-parse --git-path myanyagent-hooks)"
+mkdir -p "$(git rev-parse --git-path myanyagent-hooks)"
+cat > "$(git rev-parse --git-path myanyagent-hooks)/prepare-commit-msg" <<'H'
+#!/bin/sh
+# MyAnyAgent prepare-commit-msg hook
+exit 0
+H
+chmod +x "$(git rev-parse --git-path myanyagent-hooks)/prepare-commit-msg"
 
 out=$(HOME="$TESTHOME" sh "$STATUS" 2>&1) || true
 last_line=$(echo "$out" | tail -1)
@@ -104,5 +114,36 @@ out=$(sh "$STATUS" 2>&1) || true
 echo "$out" | grep -q "identity: MISMATCH" || fail "should report identity MISMATCH, got: $out"
 echo "$out" | grep -q -- "-> run:" || fail "identity mismatch should emit -> run: hint"
 printf 'PASS: identity mismatch reported with action hint\n'
+
+# --- Test 8: attribution hook + trailer reported ---
+# Restore matching identity so MISMATCH from Test 7 does not mask attribution lines.
+git config --local user.email "42+anyingiit@users.noreply.github.com"
+hooks_dir=$(git rev-parse --git-path myanyagent-hooks)
+case "$hooks_dir" in /*) ;; *) hooks_dir="$PWD/$hooks_dir" ;; esac
+mkdir -p "$hooks_dir"
+cat > "$hooks_dir/prepare-commit-msg" <<'H'
+#!/bin/sh
+# MyAnyAgent prepare-commit-msg hook
+exit 0
+H
+chmod +x "$hooks_dir/prepare-commit-msg"
+git config --local core.hooksPath "$(git rev-parse --git-path myanyagent-hooks)"
+# Add co_author to the existing toml ([identity] already appended in Test 6)
+cat >> .myanyagent.toml <<'EOF'
+co_author = "OpenCode (Kimi) <noreply@myanyagent.local>"
+EOF
+
+out=$(sh "$STATUS" 2>&1) || true
+echo "$out" | grep -q "attribution hook: installed" || fail "should report hook installed, got: $out"
+echo "$out" | grep -qF 'attribution trailer: OpenCode (Kimi) <noreply@myanyagent.local>' || fail "should report resolved trailer, got: $out"
+printf 'PASS: attribution hook and trailer reported\n'
+
+# --- Test 9: hook missing -> NOT installed + bootstrap hint ---
+git config --local --unset core.hooksPath
+rm -rf "$hooks_dir"
+out=$(sh "$STATUS" 2>&1) || true
+echo "$out" | grep -q "attribution hook: NOT installed" || fail "should report hook NOT installed, got: $out"
+echo "$out" | grep -q -- "-> run:" || fail "missing hook should surface a -> run: hint"
+printf 'PASS: missing hook reported with hint\n'
 
 printf '\nALL status tests passed\n'

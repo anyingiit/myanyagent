@@ -95,6 +95,57 @@ if [ -n "$identity_email" ] && [ -n "$repo_root" ]; then
   fi
 fi
 
+# Attribution state (read-only): hook presence, resolved trailer, unpushed gaps.
+attr_coauthor=$(sed -n '/^\[identity\]/,/^\[/p' "$toml" | sed -n 's/^[[:space:]]*co_author[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' | head -1)
+bot_name=$(sed -n '/^\[bot\]/,/^\[/p' "$toml" | sed -n 's/^[[:space:]]*name[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' | head -1)
+bot_email=$(sed -n '/^\[bot\]/,/^\[/p' "$toml" | sed -n 's/^[[:space:]]*email[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' | head -1)
+attr_trailer=""
+if [ -n "${MYANYAGENT_ATTRIBUTION:-}" ]; then
+  attr_trailer="$MYANYAGENT_ATTRIBUTION"
+elif [ -n "$attr_coauthor" ]; then
+  attr_trailer="$attr_coauthor"
+elif [ -n "$bot_name" ] && [ -n "$bot_email" ]; then
+  attr_trailer="$bot_name <$bot_email>"
+fi
+if [ -n "$attr_trailer" ]; then
+  printf 'attribution trailer: %s\n' "$attr_trailer"
+else
+  printf 'attribution trailer: (none configured)\n'
+fi
+
+hook_found=false
+hooks_path=$(git config --local --get core.hooksPath 2>/dev/null || true)
+[ -n "$hooks_path" ] || hooks_path=$(git config --global --get core.hooksPath 2>/dev/null || true)
+if [ -n "$hooks_path" ] && [ -n "$repo_root" ]; then
+  case "$hooks_path" in /*) hooks_dir="$hooks_path" ;; *) hooks_dir="$repo_root/$hooks_path" ;; esac
+else
+  hooks_dir=""
+fi
+if [ -n "$hooks_dir" ] && [ -x "$hooks_dir/prepare-commit-msg" ] \
+   && grep -qF '# MyAnyAgent prepare-commit-msg hook' "$hooks_dir/prepare-commit-msg" 2>/dev/null; then
+  hook_found=true
+fi
+if $hook_found; then
+  printf 'attribution hook: installed\n'
+else
+  printf 'attribution hook: NOT installed\n'
+  needs_action=true
+fi
+
+# Unpushed commits missing the trailer (only meaningful when trailer + upstream exist)
+if [ -n "$attr_trailer" ] && [ -n "$repo_root" ]; then
+  upstream=$(git rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)
+  if [ -n "$upstream" ]; then
+    missing=$(git log --format=%B "@{upstream}..HEAD" 2>/dev/null |
+      grep -ciF "co-authored-by:" || true)
+    total=$(git rev-list --count "@{upstream}..HEAD" 2>/dev/null || echo 0)
+    if [ "${total:-0}" -gt 0 ] && [ "$missing" -lt "$total" ]; then
+      printf 'unpushed commits without trailer: %s of %s\n' "$((total - missing))" "$total"
+      needs_action=true
+    fi
+  fi
+fi
+
 if $configured; then
   printf 'git config: configured\n'
 else
