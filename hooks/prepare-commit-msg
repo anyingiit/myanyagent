@@ -6,6 +6,9 @@
 # (via lib/attribution.cjs). Never fails the commit; missing node or missing
 # toml simply means no trailer is added (the delivery gate in
 # myanyagent-upstream pr create is the enforcement layer).
+#
+# Deliberately no `set -eu`: this hook must never fail a commit; every
+# fallible command exits 0 explicitly.
 
 COMMIT_MSG_FILE="$1"
 COMMIT_SOURCE="${2:-}"
@@ -21,13 +24,14 @@ repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 toml="$repo_root/.myanyagent.toml"
 [ -f "$toml" ] || exit 0
 
-# lib/ sits next to hooks/ in the source repo, and next to bin/ after install.
-# MYANYAGENT_LIB is a test/escape hatch.
+# lib/ sits next to hooks/ in the source repo, next to bin/ after install, and
+# in the installed layout under ~/.local/share/myanyagent/lib/. MYANYAGENT_LIB
+# is a test/escape hatch.
 if [ -n "${MYANYAGENT_LIB:-}" ]; then
   lib="$MYANYAGENT_LIB/attribution.cjs"
 else
   hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-  for cand in "$hook_dir/../lib/attribution.cjs" "$hook_dir/../../lib/attribution.cjs"; do
+  for cand in "$hook_dir/../lib/attribution.cjs" "$hook_dir/../../lib/attribution.cjs" "$HOME/.local/share/myanyagent/lib/attribution.cjs"; do
     if [ -f "$cand" ]; then lib="$cand"; break; fi
   done
 fi
@@ -40,8 +44,15 @@ trailer=$(node -e '
 ' "$lib" "$toml" 2>/dev/null) || exit 0
 [ -n "$trailer" ] || exit 0
 
-# Idempotency + formatting handled by git interpret-trailers itself.
-if git interpret-trailers --parse < "$COMMIT_MSG_FILE" 2>/dev/null | grep -qiF "co-authored-by: $trailer"; then
+# Idempotency + formatting handled by git interpret-trailers itself. Compare
+# key case-insensitively and value EXACTLY (a substring match would wrongly
+# treat "Co-authored-by: Bot <b@x>.evil" as already present).
+if git interpret-trailers --parse < "$COMMIT_MSG_FILE" 2>/dev/null |
+   awk -v want="$trailer" '
+     { k = $0; sub(/^[[:space:]]*/, "", k); v = k; sub(/:.*/, "", k);
+       sub(/^[^:]*:[[:space:]]*/, "", v);
+       if (tolower(k) == "co-authored-by" && v == want) found = 1 }
+     END { exit (found ? 0 : 1) }'; then
   exit 0
 fi
 git interpret-trailers --in-place --trailer "Co-authored-by: $trailer" "$COMMIT_MSG_FILE" 2>/dev/null || exit 0

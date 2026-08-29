@@ -121,7 +121,19 @@ if [ -f "$hook_src" ]; then
       /*) ;;
       *) hooks_dir="$repo_root/$hooks_dir" ;;
     esac
-    git config --local core.hooksPath "$(git rev-parse --git-path myanyagent-hooks)"
+    # Per-worktree core.hooksPath via extensions.worktreeConfig: bootstrapping a
+    # linked worktree must never touch the main worktree's hooks config (--local
+    # writes the shared config file). git rev-parse --git-path already resolves
+    # per-worktree, so the value is correct for whichever worktree runs this.
+    if git config extensions.worktreeConfig true 2>/dev/null \
+       && git config --worktree core.hooksPath "$(git rev-parse --git-path myanyagent-hooks)" 2>/dev/null; then
+      # A previous bootstrap may have set core.hooksPath via --local (shared
+      # across worktrees); unset it so the per-worktree value is not shadowed.
+      git config --local --unset core.hooksPath >/dev/null 2>&1 || true
+    else
+      printf 'myanyagent: warning: git too old for per-worktree core.hooksPath; falling back to --local\n' >&2
+      git config --local core.hooksPath "$(git rev-parse --git-path myanyagent-hooks)"
+    fi
   fi
   mkdir -p "$hooks_dir"
   hook_dst="$hooks_dir/prepare-commit-msg"

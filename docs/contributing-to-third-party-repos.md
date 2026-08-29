@@ -154,13 +154,17 @@ defense is layered enforcement:
 
 1. Skill rules (convention) — the agent is instructed the trailer is mandatory.
 2. `prepare-commit-msg` hook (automation) — the trailer is appended at commit
-   time regardless of what the agent wrote; `--no-verify` bypasses it, which
-   is why this layer is not the boundary.
+   time regardless of what the agent wrote. `--no-verify` does NOT skip
+   `prepare-commit-msg` (it only disables `pre-commit`/`commit-msg`), so the
+   hook fires on every normal `git commit`; only removing the hook or plumbing
+   with `git commit-tree` bypasses this layer.
 3. `myanyagent-status` (visibility) — drift between expected and actual state
    is reported with `-> run:` remediation.
 4. `myanyagent-upstream pr create` (delivery gate) — the only layer the agent
-   cannot route around through this toolchain: commits that would leave the
-   machine without the trailer block PR creation.
+   cannot route around through this toolchain: every commit on the PR head
+   branch that is ahead of its upstream must carry the trailer, or PR creation
+   is blocked. A branch with no upstream fails closed (the gate has no
+   delivery target) until the user runs `git push -u origin <branch>`.
 
 Residual risk, accepted by design: an agent with shell access can still commit
 and push without ever invoking `pr create` (e.g. direct push to an own-repo

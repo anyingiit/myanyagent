@@ -157,7 +157,7 @@ chmod +x "$TOOLHOME/.local/share/myanyagent/hooks/prepare-commit-msg"
 
 HOME="$TOOLHOME" MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
 
-hooks_path=$(git config --local core.hooksPath 2>/dev/null) || fail "core.hooksPath not set by bootstrap"
+hooks_path=$(git config --get core.hooksPath 2>/dev/null) || fail "core.hooksPath not set by bootstrap"
 [ -n "$hooks_path" ] || fail "core.hooksPath empty"
 # Resolve relative hooksPath against repo root (git resolves it against worktree root)
 case "$hooks_path" in /*) resolved="$hooks_path" ;; *) resolved="$TMPDIR/repo/$hooks_path" ;; esac
@@ -167,8 +167,65 @@ printf 'PASS: bootstrap installs attribution hook\n'
 
 # --- Test 9b: idempotent re-run does not duplicate or clobber ---
 HOME="$TOOLHOME" MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
-[ "$(git config --local core.hooksPath)" = "$hooks_path" ] || fail "hooksPath changed on re-run"
+[ "$(git config --get core.hooksPath)" = "$hooks_path" ] || fail "hooksPath changed on re-run"
 printf 'PASS: hook install idempotent\n'
 rm -rf "$TOOLHOME"
+
+# --- Test 10: linked worktree bootstrap uses a per-worktree hooksPath ---
+# Bootstrapping a LINKED worktree must set core.hooksPath per-worktree
+# (extensions.worktreeConfig) so the main worktree's config is untouched.
+git init -q "$TMPDIR/repo3" || fail "git init repo3 failed"
+cd "$TMPDIR/repo3"
+git config --global user.email "test@test.test" 2>/dev/null || true
+git config --global user.name "Test" 2>/dev/null || true
+cat > .myanyagent.toml <<EOF
+repository = "anyingiit/My_Nexus-Editor_Workspace"
+installation_id = "151195329"
+[bot]
+name = "MyAnyAgent[bot]"
+email = "312959697+myanyagent[bot]@users.noreply.github.com"
+EOF
+git remote add origin "https://github.com/anyingiit/My_Nexus-Editor_Workspace.git" || fail "remote add repo3 failed"
+git commit -q --allow-empty -m "base" || fail "repo3 base commit failed"
+git worktree add -q "$TMPDIR/repo3wt" -b f5-test 2>/dev/null || fail "git worktree add failed"
+
+TOOLHOME3=$(mktemp -d)
+mkdir -p "$TOOLHOME3/.local/share/myanyagent/bin" "$TOOLHOME3/.local/share/myanyagent/hooks" "$TOOLHOME3/.local/share/myanyagent/lib"
+cp "$(cd "$(dirname "$BOOTS")" && pwd)/myanyagent-credential-helper.cjs" "$TOOLHOME3/.local/share/myanyagent/bin/"
+printf '1' > "$TOOLHOME3/.local/share/myanyagent/VERSION"
+cp "$(cd "$(dirname "$BOOTS")/.." && pwd)/lib/attribution.cjs" "$TOOLHOME3/.local/share/myanyagent/lib/"
+cp "$(cd "$(dirname "$BOOTS")/.." && pwd)/hooks/prepare-commit-msg" "$TOOLHOME3/.local/share/myanyagent/hooks/"
+chmod +x "$TOOLHOME3/.local/share/myanyagent/hooks/prepare-commit-msg"
+
+cd "$TMPDIR/repo3wt"
+# The toml is untracked in the main worktree, so a linked worktree gets it
+# written fresh (uncommitted) before bootstrap — same as the real flow.
+cat > .myanyagent.toml <<EOF
+repository = "anyingiit/My_Nexus-Editor_Workspace"
+installation_id = "151195329"
+[bot]
+name = "MyAnyAgent[bot]"
+email = "312959697+myanyagent[bot]@users.noreply.github.com"
+EOF
+HOME="$TOOLHOME3" MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
+
+# Linked worktree: hooksPath lives in the worktree config, not the shared local config.
+[ -n "$(git config --worktree --get core.hooksPath 2>/dev/null || true)" ] \
+  || fail "linked worktree should have a per-worktree core.hooksPath"
+[ -z "$(git config --local --get core.hooksPath 2>/dev/null || true)" ] \
+  || fail "linked worktree must not set core.hooksPath via --local"
+# Main worktree: local config untouched -> no myanyagent hooksPath.
+cd "$TMPDIR/repo3"
+[ -z "$(git config --local --get core.hooksPath 2>/dev/null || true)" ] \
+  || fail "main worktree must not have a local core.hooksPath"
+# And the linked worktree's hook actually fires.
+cd "$TMPDIR/repo3wt"
+echo f5 > f5.txt
+git add f5.txt
+HOME="$TOOLHOME3" git commit -q -m "f5" 2>/dev/null || fail "linked worktree commit failed"
+git log -1 --format=%B | grep -qF 'Co-authored-by: MyAnyAgent[bot] <312959697+myanyagent[bot]@users.noreply.github.com>' \
+  || fail "linked worktree commit missing trailer"
+printf 'PASS: linked worktree gets per-worktree hooksPath, main unaffected\n'
+rm -rf "$TOOLHOME3"
 
 printf '\nALL bootstrap tests passed\n'

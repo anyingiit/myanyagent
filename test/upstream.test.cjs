@@ -329,56 +329,117 @@ test("reviews rejects a non-array 200 body with a clear error", async () => {
   assert.doesNotMatch(r.stderr, /TypeError|at .*\.js:/);
 });
 
-test("checkAttribution flags local-only commits missing the trailer", async (t) => {
+// --- Attribution gate (ahead-of-upstream semantics) ---
+
+// Helper: throwaway repo with a local bare remote as the upstream (delivery
+// target). Returns { root, dir, git } and an addCommit() for the repo.
+function gateRepo() {
   const { execFileSync } = require("node:child_process");
-  const os = require("node:os");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "gate-"));
+  const dir = path.join(root, "repo");
+  const bare = path.join(root, "bare.git");
+  fs.mkdirSync(dir);
   const git = (args, opts = {}) =>
     execFileSync("git", args, { cwd: dir, encoding: "utf8", ...opts });
-
   git(["init", "-q"]);
   git(["config", "user.name", "Test"]);
   git(["config", "user.email", "test@test.test"]);
-  fs.writeFileSync(path.join(dir, ".myanyagent.toml"),
-    'repository = "o/r"\ninstallation_id = "1"\n[bot]\nname = "MyAnyAgent[bot]"\nemail = "b@b.c"\n');
+  execFileSync("git", ["init", "-q", "--bare", bare], { encoding: "utf8" });
+  git(["remote", "add", "origin", bare]);
+  fs.writeFileSync(
+    path.join(dir, ".myanyagent.toml"),
+    'repository = "o/r"\ninstallation_id = "1"\n[bot]\nname = "MyAnyAgent[bot]"\nemail = "b@b.c"\n'
+  );
+  return {
+    root,
+    dir,
+    branch: () => git(["rev-parse", "--abbrev-ref", "HEAD"]).trim(),
+    git,
+    addCommit(message, { trailer, file = "f.txt" } = {}) {
+      fs.writeFileSync(path.join(dir, file), file + "\n" + Math.random());
+      git(["add", file]);
+      const args = ["commit", "-q", "-m", message];
+      if (trailer) args.push("--trailer", `Co-authored-by: ${trailer}`);
+      git(args);
+    },
+  };
+}
 
+test("no-upstream branch fails closed with a push -u hint", () => {
+  const { root, dir, branch, addCommit } = gateRepo();
   const { checkAttribution } = require("../bin/myanyagent-upstream.cjs");
   const trailer = "MyAnyAgent[bot] <b@b.c>";
-
-  // Commit 1: has trailer. Commit 2: missing.
-  fs.writeFileSync(path.join(dir, "a.txt"), "a");
-  git(["add", "."]);
-  git(["commit", "-q", "-m", "one", "--trailer", `Co-authored-by: ${trailer}`]);
-  fs.writeFileSync(path.join(dir, "b.txt"), "b");
-  git(["add", "."]);
-  git(["commit", "-q", "-m", "two"]);
-
+  addCommit("no trailer"); // never pushed -> branch has no upstream
   const r = checkAttribution({ cwd: dir, trailer });
-  assert.equal(r.total, 2);
-  assert.equal(r.ok, false);
-  assert.equal(r.missing.length, 1);
-  assert.equal(r.missing[0].subject, "two");
-
-  fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(r.ok, false, "no upstream must fail closed");
+  assert.equal(r.total, 0);
+  assert.match(r.error, /no upstream/);
+  assert.match(r.error, /push -u origin/);
+  assert.match(r.error, new RegExp(branch())); // names the branch
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("checkAttribution passes when all local-only commits carry the trailer", async () => {
-  const { execFileSync } = require("node:child_process");
-  const os = require("node:os");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-"));
-  const git = (args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
-  git(["init", "-q"]);
-  git(["config", "user.name", "Test"]);
-  git(["config", "user.email", "test@test.test"]);
+test("missing-trailer commit ahead of upstream is blocked before AND after push", () => {
+  const { root, dir, git, addCommit } = gateRepo();
   const { checkAttribution } = require("../bin/myanyagent-upstream.cjs");
   const trailer = "MyAnyAgent[bot] <b@b.c>";
-  fs.writeFileSync(path.join(dir, "a.txt"), "a");
-  git(["add", "."]);
-  git(["commit", "-q", "-m", "one", "--trailer", `Co-authored-by: ${trailer}`]);
+  addCommit("base", { trailer });
+  git(["push", "-q", "-u", "origin", "HEAD"]); // delivery target established
+  addCommit("no trailer");
+
+  const before = checkAttribution({ cwd: dir, trailer });
+  assert.equal(before.ok, false);
+  assert.equal(before.total, 1);
+  assert.equal(before.missing[0].subject, "no trailer");
+
+  // Push the SAME commit to the fake remote — but NOT to the branch's
+  // upstream. The gate is anchored to the upstream, so pushing elsewhere must
+  // not hide the commit (C2: "symmetric across push").
+  git(["push", "-q", "origin", "HEAD:refs/heads/backup"]);
+  const after = checkAttribution({ cwd: dir, trailer });
+  assert.equal(after.ok, false, "commit must stay blocked after being pushed elsewhere");
+  assert.equal(after.total, 1);
+  assert.equal(after.missing[0].subject, "no trailer");
+
+  // Sanity: the upstream tracking ref did not move, so the commit is still ahead.
+  assert.equal(
+    git(["rev-list", "--count", "@{upstream}..HEAD"]).trim(),
+    "1"
+  );
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("unrelated local branch without trailer does NOT block the PR branch", () => {
+  const { root, dir, branch, git, addCommit } = gateRepo();
+  const { checkAttribution } = require("../bin/myanyagent-upstream.cjs");
+  const trailer = "MyAnyAgent[bot] <b@b.c>";
+  addCommit("base", { trailer });
+  git(["push", "-q", "-u", "origin", "HEAD"]); // current branch has an upstream
+
+  // An unrelated local branch carries a no-trailer commit; it is never PRed,
+  // so it must not affect the gate for the current branch (I1).
+  git(["checkout", "-q", "-b", "unrelated"]);
+  addCommit("no trailer on unrelated branch");
+  git(["checkout", "-q", "-"]);
+
+  const r = checkAttribution({ cwd: dir, trailer, headBranch: branch() });
+  assert.equal(r.ok, true);
+  assert.equal(r.total, 0);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("checkAttribution passes when all commits ahead of upstream carry the trailer", () => {
+  const { root, dir, git, addCommit } = gateRepo();
+  const { checkAttribution } = require("../bin/myanyagent-upstream.cjs");
+  const trailer = "MyAnyAgent[bot] <b@b.c>";
+  addCommit("base", { trailer });
+  git(["push", "-q", "-u", "origin", "HEAD"]);
+  addCommit("one", { trailer });
   const r = checkAttribution({ cwd: dir, trailer });
   assert.equal(r.ok, true);
   assert.equal(r.missing.length, 0);
-  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 // Locks the plan's gate semantics: the attribution gate enforces for EVERY
@@ -386,17 +447,11 @@ test("checkAttribution passes when all local-only commits carry the trailer", as
 // is the transport credential; the trailer is authorship disclosure; the two
 // are orthogonal, and the policy must close on this repo itself).
 test("pr create gate blocks a [bot]-only repo whose commits lack the trailer", async () => {
-  const { execFileSync } = require("node:child_process");
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-bot-"));
-  const git = (args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
-  git(["init", "-q"]);
-  git(["config", "user.name", "Test"]);
-  git(["config", "user.email", "test@test.test"]);
-  fs.writeFileSync(path.join(dir, ".myanyagent.toml"),
-    'repository = "o/r"\ninstallation_id = "1"\n[bot]\nname = "MyAnyAgent[bot]"\nemail = "b@b.c"\n');
-  fs.writeFileSync(path.join(dir, "a.txt"), "a");
-  git(["add", "."]);
-  git(["commit", "-q", "-m", "no trailer here"]);
+  const { root, dir, branch, git, addCommit } = gateRepo();
+  const trailer = "MyAnyAgent[bot] <b@b.c>";
+  addCommit("base", { trailer });
+  git(["push", "-q", "-u", "origin", "HEAD"]);
+  addCommit("no trailer here");
 
   route = ({ url }) =>
     url === "/user"
@@ -407,7 +462,7 @@ test("pr create gate blocks a [bot]-only repo whose commits lack the trailer", a
   const before = hits.length;
   const r = await run([
     "pr", "create", "--repo", "o/r", "--base", "main",
-    "--head-branch", "fix-x", "--title", "My fix", "--body-file", f, "--yes",
+    "--head-branch", branch(), "--title", "My fix", "--body-file", f, "--yes",
   ], { cwd: dir });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stderr, /attribution gate/);
@@ -416,5 +471,30 @@ test("pr create gate blocks a [bot]-only repo whose commits lack the trailer", a
     !hits.slice(before).some((h) => h.url === "/repos/o/r/pulls"),
     "mock server must not receive a /pulls request when the gate blocks",
   );
-  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("pr create fails closed with a push -u hint when the head branch has no upstream", async () => {
+  const { root, dir, branch, addCommit } = gateRepo();
+  addCommit("no upstream at all");
+
+  route = ({ url }) =>
+    url === "/user"
+      ? { status: 200, json: { login: "me", id: 42 } }
+      : { status: 201, json: { number: 5, html_url: "https://example/pr/5" } };
+  const f = path.join(dir, "body.md");
+  fs.writeFileSync(f, "pr body\n");
+  const before = hits.length;
+  const r = await run([
+    "pr", "create", "--repo", "o/r", "--base", "main",
+    "--head-branch", branch(), "--title", "My fix", "--body-file", f, "--yes",
+  ], { cwd: dir });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /attribution gate/);
+  assert.match(r.stderr, /push -u origin/);
+  assert.ok(
+    !hits.slice(before).some((h) => h.url === "/repos/o/r/pulls"),
+    "mock server must not receive a /pulls request when the gate fails closed",
+  );
+  fs.rmSync(root, { recursive: true, force: true });
 });

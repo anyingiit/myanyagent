@@ -28,7 +28,7 @@ for arg in "$@"; do
 done
 
 # Install tool
-mkdir -p "$target_bin" "$config_dir" "$local_bin"
+mkdir -p "$target_bin" "$target_dir/lib" "$config_dir" "$local_bin"
 cp "$script_dir/bin/myanyagent-credential-helper.cjs" "$target_bin/"
 cp "$script_dir/bin/myanyagent-upstream.cjs" "$target_bin/"
 chmod +x "$target_bin/myanyagent-upstream.cjs"
@@ -36,6 +36,7 @@ cp "$script_dir/bin/myanyagent-bootstrap.sh" "$target_bin/"
 chmod +x "$target_bin/myanyagent-bootstrap.sh"
 cp "$script_dir/bin/myanyagent-status.sh" "$target_bin/"
 chmod +x "$target_bin/myanyagent-status.sh"
+cp "$script_dir/lib/attribution.cjs" "$target_dir/lib/"
 mkdir -p "$target_dir/hooks"
 if [ -f "$script_dir/hooks/prepare-commit-msg" ]; then
   cp "$script_dir/hooks/prepare-commit-msg" "$target_dir/hooks/"

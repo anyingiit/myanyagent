@@ -101,10 +101,13 @@ bot_name=$(sed -n '/^\[bot\]/,/^\[/p' "$toml" | sed -n 's/^[[:space:]]*name[[:sp
 bot_email=$(sed -n '/^\[bot\]/,/^\[/p' "$toml" | sed -n 's/^[[:space:]]*email[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' | head -1)
 attr_trailer=""
 if [ -n "${MYANYAGENT_ATTRIBUTION:-}" ]; then
-  attr_trailer="$MYANYAGENT_ATTRIBUTION"
-elif [ -n "$attr_coauthor" ]; then
+  # Trim like lib/attribution.cjs (line ~42): whitespace-only counts as unset.
+  attr_env=$(printf '%s' "$MYANYAGENT_ATTRIBUTION" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+  [ -n "$attr_env" ] && attr_trailer="$attr_env"
+fi
+if [ -z "$attr_trailer" ] && [ -n "$attr_coauthor" ]; then
   attr_trailer="$attr_coauthor"
-elif [ -n "$bot_name" ] && [ -n "$bot_email" ]; then
+elif [ -z "$attr_trailer" ] && [ -n "$bot_name" ] && [ -n "$bot_email" ]; then
   attr_trailer="$bot_name <$bot_email>"
 fi
 if [ -n "$attr_trailer" ]; then
@@ -114,8 +117,10 @@ else
 fi
 
 hook_found=false
-hooks_path=$(git config --local --get core.hooksPath 2>/dev/null || true)
-[ -n "$hooks_path" ] || hooks_path=$(git config --global --get core.hooksPath 2>/dev/null || true)
+# Plain `git config --get` respects the full scope chain (system/global/local/
+# worktree); `--local` would miss a per-worktree core.hooksPath (set via
+# extensions.worktreeConfig) in a linked worktree.
+hooks_path=$(git config --get core.hooksPath 2>/dev/null || true)
 if [ -n "$hooks_path" ] && [ -n "$repo_root" ]; then
   case "$hooks_path" in /*) hooks_dir="$hooks_path" ;; *) hooks_dir="$repo_root/$hooks_path" ;; esac
 else
@@ -132,15 +137,29 @@ else
   needs_action=true
 fi
 
-# Unpushed commits missing the trailer (only meaningful when trailer + upstream exist)
+# Unpushed commits missing the exact trailer (only meaningful when trailer + upstream exist).
+# For each commit in @{upstream}..HEAD, parse its trailer block via
+# `git interpret-trailers --parse` and require a Co-authored-by whose value
+# EQUALS the resolved trailer. A commit with a different co-author value (or a
+# trailer line inside body prose) is still reported as missing.
 if [ -n "$attr_trailer" ] && [ -n "$repo_root" ]; then
   upstream=$(git rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)
   if [ -n "$upstream" ]; then
-    missing=$(git log --format=%B "@{upstream}..HEAD" 2>/dev/null |
-      grep -ciF "co-authored-by:" || true)
-    total=$(git rev-list --count "@{upstream}..HEAD" 2>/dev/null || echo 0)
-    if [ "${total:-0}" -gt 0 ] && [ "$missing" -lt "$total" ]; then
-      printf 'unpushed commits without trailer: %s of %s\n' "$((total - missing))" "$total"
+    missing=0
+    total=0
+    for sha in $(git rev-list "@{upstream}..HEAD" 2>/dev/null || true); do
+      total=$((total + 1))
+      if ! git log --format=%B -n1 "$sha" 2>/dev/null | git interpret-trailers --parse 2>/dev/null |
+         awk -v want="$attr_trailer" '
+           { k = $0; sub(/^[[:space:]]*/, "", k); v = k; sub(/:.*/, "", k);
+             sub(/^[^:]*:[[:space:]]*/, "", v);
+             if (tolower(k) == "co-authored-by" && v == want) found = 1 }
+           END { exit (found ? 0 : 1) }'; then
+        missing=$((missing + 1))
+      fi
+    done
+    if [ "$total" -gt 0 ] && [ "$missing" -gt 0 ]; then
+      printf 'unpushed commits without trailer: %s of %s\n' "$missing" "$total"
       needs_action=true
     fi
   fi

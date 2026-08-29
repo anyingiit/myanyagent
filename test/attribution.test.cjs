@@ -76,6 +76,28 @@ test("hasAttributionTrailer matches case-insensitive key, exact value", () => {
   assert.equal(hasAttributionTrailer(`feat: x\n\nno trailer here\n`, trailer), false);
 });
 
+test("hasAttributionTrailer ignores a Co-authored-by-looking line in body prose", () => {
+  const trailer = "Agent <a@b.c>";
+  // The trailer-looking line sits mid-paragraph, so it is NOT in the trailer
+  // block per git-trailer rules and must not be counted.
+  const msg = "feat: x\n\nsome body prose\nCo-authored-by: Agent <a@b.c>\nmore prose\n";
+  assert.equal(hasAttributionTrailer(msg, trailer), false);
+});
+
+test("hasAttributionTrailer returns false when git is unavailable", () => {
+  const trailer = "Agent <a@b.c>";
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "attr-nogit-"));
+  const msg = `feat: x\n\nCo-authored-by: ${trailer}\n`;
+  const prevPath = process.env.PATH;
+  try {
+    process.env.PATH = dir; // no git on PATH -> interpret-trailers cannot run
+    assert.equal(hasAttributionTrailer(msg, trailer), false);
+  } finally {
+    process.env.PATH = prevPath;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("appendTrailer appends with blank-line separation", () => {
   const trailer = "OpenCode (Kimi) <noreply@myanyagent.local>";
   const out = appendTrailer("feat: x\n", trailer);

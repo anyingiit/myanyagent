@@ -79,4 +79,24 @@ PATH="/usr/bin:/bin" git -c core.hooksPath="$TMPDIR/hooks-nodeless" commit -q -m
 }
 printf 'PASS: node-missing path does not break commits\n'
 
+# --- Test 6: prefix-superset trailer must NOT suppress the exact trailer ---
+echo evil > evil.txt
+git add evil.txt
+git commit -q -m "feat: prefix-superset" \
+  --trailer "Co-authored-by: MyAnyAgent[bot] <312959697+myanyagent[bot]@users.noreply.github.com>.evil"
+parsed=$(git log -1 --format=%B | git interpret-trailers --parse)
+count_exact=$(printf '%s\n' "$parsed" | grep -cFx 'Co-authored-by: MyAnyAgent[bot] <312959697+myanyagent[bot]@users.noreply.github.com>' || true)
+[ "$count_exact" = "1" ] || fail "prefix-superset suppressed exact trailer; parsed: $parsed"
+printf '%s\n' "$parsed" | grep -qF '.evil' || fail "prefix-superset trailer not present; parsed: $parsed"
+printf 'PASS: prefix-superset trailer does not suppress exact trailer\n'
+
+# --- Test 7: exact trailer present -> no duplicate ---
+echo dup > dup.txt
+git add dup.txt
+git commit -q -m "feat: dup" \
+  --trailer "Co-authored-by: MyAnyAgent[bot] <312959697+myanyagent[bot]@users.noreply.github.com>"
+count_exact=$(git log -1 --format=%B | git interpret-trailers --parse | grep -cFx 'Co-authored-by: MyAnyAgent[bot] <312959697+myanyagent[bot]@users.noreply.github.com>' || true)
+[ "$count_exact" = "1" ] || fail "exact trailer duplicated, count=$count_exact"
+printf 'PASS: exact trailer not duplicated\n'
+
 printf '\nALL hook tests passed\n'

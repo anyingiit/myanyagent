@@ -104,9 +104,12 @@ small adapter is used:
 - **AI disclosure is enforced, not advisory.** Every commit carries a
   `Co-authored-by:` trailer naming the agent. Bootstrap installs a
   `prepare-commit-msg` hook that appends the resolved trailer automatically
-  (env `MYANYAGENT_ATTRIBUTION` > `[identity].co_author` > `[bot]` block), and
-  `myanyagent-upstream pr create` refuses to open a PR when local commits lack
-  it (`--skip-attribution-check` bypasses). `myanyagent-status` reports hook
+  (env `MYANYAGENT_ATTRIBUTION` > `[identity].co_author` > `[bot]` block;
+  `--no-verify` does NOT skip `prepare-commit-msg`), and
+  `myanyagent-upstream pr create` refuses to open a PR when the head branch's
+  commits ahead of its upstream lack the trailer — a branch with no upstream
+  fails closed until you `git push -u origin <branch>` first
+  (`--skip-attribution-check` bypasses). `myanyagent-status` reports hook
   state, the resolved trailer, and unpushed commits missing it.
 
 See `docs/contributing-to-third-party-repos.md` for the full capability
@@ -117,6 +120,9 @@ research and failure record behind this design.
 ```sh
 node --test test/helper.test.cjs
 node --test test/upstream.test.cjs
+node --test test/attribution.test.cjs
+sh test/hooks.test.sh
 sh test/bootstrap.test.sh
 sh test/status.test.sh
+sh test/install.test.sh
 ```

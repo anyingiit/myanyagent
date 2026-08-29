@@ -52,20 +52,59 @@ for (const cand of [
   } catch { /* try next */ }
 }
 
-// Local gate: every commit that would leave this machine (not on any remote)
-// must carry the resolved Co-authored-by trailer. Returns structured results;
-// callers decide policy. Never throws on git errors — returns ok:true with
-// total:0 when no local-only commits exist or git fails.
-function checkAttribution({ cwd, trailer }) {
+// Local gate: every commit that this PR would publish — the ahead-set of the PR
+// head branch relative to ITS upstream — must carry the resolved Co-authored-by
+// trailer. The branch's upstream is the delivery target, so the range is
+// `@{upstream}..HEAD` (or `<upstream>..<branch>` when --head-branch names a
+// different local branch). This is symmetric across push: pushing the commits
+// elsewhere does not hide them, and only the PR branch is ever checked.
+//
+// No upstream configured => FAIL CLOSED: the gate has no delivery target to
+// compare against, so it reports not-ok with a `git push -u origin <branch>`
+// hint. Other git failures stay soft (ok:true, total:0) so odd repos or
+// transient errors never break the API flow.
+function checkAttribution({ cwd, trailer, headBranch }) {
   const empty = { ok: true, missing: [], total: 0 };
   if (!trailer) return empty;
+  const git = (args, opts = {}) =>
+    execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 16 * 1024 * 1024,
+      ...opts,
+    });
+
+  let branch;
+  try {
+    branch = git(["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+  } catch {
+    return empty;
+  }
+  if (headBranch && headBranch !== branch) {
+    branch = headBranch;
+  }
+
+  let upstream;
+  try {
+    upstream = git(["rev-parse", "--abbrev-ref", `${branch}@{upstream}`]).trim();
+  } catch (e) {
+    const err = String((e && e.stderr) || (e && e.message) || "").toLowerCase();
+    if (err.includes("no upstream configured")) {
+      return {
+        ok: false,
+        missing: [],
+        total: 0,
+        branch,
+        error: `branch '${branch}' has no upstream configured — the attribution gate needs a delivery target; git push -u origin ${branch} first`,
+      };
+    }
+    return empty;
+  }
+
   let raw;
   try {
-    raw = execFileSync(
-      "git",
-      ["log", "--format=%H%x00%s%x00%B%x00END", "--branches", "--not", "--remotes"],
-      { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 16 * 1024 * 1024 }
-    );
+    raw = git(["log", "--format=%H%x00%s%x00%B%x00END", `${upstream}..${branch}`]);
   } catch {
     return empty;
   }
@@ -252,7 +291,10 @@ read:
 write (DRY-RUN unless --yes):
   fork          --repo o/r
   pr create     --repo o/r --base B --head-branch B --title T --body-file F
-                (runs the attribution gate; --skip-attribution-check bypasses)
+                (runs the attribution gate: commits ahead of the head branch's
+                upstream must carry the trailer; a branch with no upstream
+                fails closed until you git push -u origin <branch> first;
+                --skip-attribution-check bypasses)
   comment       --repo o/r --number n --body-file F
   reply         --repo o/r --pr n --comment-id id --body-file F
   resolve       --thread-id PRRT_...
@@ -382,8 +424,17 @@ body-file "-" reads stdin. token: $MYANYAGENT_UPSTREAM_TOKEN or
           env: process.env,
         });
         if (resolved.trailer) {
-          const gate = checkAttribution({ cwd: process.cwd(), trailer: resolved.trailer });
+          const gate = checkAttribution({
+            cwd: process.cwd(),
+            trailer: resolved.trailer,
+            headBranch: flags["head-branch"],
+          });
           if (!gate.ok) {
+            if (gate.error) {
+              fail(`attribution gate: ${gate.error}`);
+              hint(`git push -u origin ${gate.branch} first, then re-run this command`);
+              return 1;
+            }
             fail(`attribution gate: ${gate.missing.length} of ${gate.total} local commit(s) lack Co-authored-by: ${resolved.trailer}`);
             for (const c of gate.missing) fail(`  ${c.sha} ${c.subject}`);
             hint("git rebase / amend to add the trailer, or re-run with --skip-attribution-check");

@@ -60,9 +60,15 @@ Rules:
 
 - Never omit the trailer. Never remove it from an existing commit message.
 - The `prepare-commit-msg` hook (installed by `myanyagent-bootstrap`) appends
-  it automatically — do not bypass hooks with `--no-verify`.
-- `myanyagent-upstream pr create` refuses to open a PR when local commits lack
-  the trailer. Fix history (rebase/amend) rather than bypassing.
+  it automatically. Note: `--no-verify` does NOT skip `prepare-commit-msg`
+  (it only disables `pre-commit` and `commit-msg`), so the trailer is appended
+  on every normal `git commit`. The real bypasses are removing the hook or
+  plumbing commits with `git commit-tree`.
+- `myanyagent-upstream pr create` refuses to open a PR when the head branch's
+  commits ahead of its upstream lack the trailer; a branch with no upstream
+  fails closed — push it first with `git push -u origin <branch>` (the gate
+  needs a delivery target to have semantics). Fix history (rebase/amend)
+  rather than bypassing.
 - The trailer discloses tool involvement; the human remains the sole author.
   Do NOT add `Signed-off-by` on the human's behalf.
 

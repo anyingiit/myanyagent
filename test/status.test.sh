@@ -146,4 +146,76 @@ echo "$out" | grep -q "attribution hook: NOT installed" || fail "should report h
 echo "$out" | grep -q -- "-> run:" || fail "missing hook should surface a -> run: hint"
 printf 'PASS: missing hook reported with hint\n'
 
+# --- Setup for unpushed-trailer tests: fake HOME with the tool installed ---
+UNPUSH_HOME=$(mktemp -d)
+mkdir -p "$UNPUSH_HOME/.local/share/myanyagent/bin"
+cp "$(cd "$(dirname "$STATUS")" && pwd)/myanyagent-credential-helper.cjs" "$UNPUSH_HOME/.local/share/myanyagent/bin/"
+printf '1' > "$UNPUSH_HOME/.local/share/myanyagent/VERSION"
+
+# --- Test 10: unpushed commits missing the exact trailer value ---
+# (a) one commit with the trailer + one without -> "1 of 2"
+git init -q "$TMPDIR/repo4" || fail "git init repo4 failed"
+git init -q --bare "$TMPDIR/remote4.git"
+cd "$TMPDIR/repo4"
+git config --global user.email "test@test.test" 2>/dev/null || true
+git config --global user.name "Test" 2>/dev/null || true
+git remote add origin "$TMPDIR/remote4.git"
+cat > .myanyagent.toml <<EOF
+repository = "anyingiit/My_Nexus-Editor_Workspace"
+installation_id = "151195329"
+[bot]
+name = "MyAnyAgent[bot]"
+email = "312959697+myanyagent[bot]@users.noreply.github.com"
+EOF
+TRAILER='MyAnyAgent[bot] <312959697+myanyagent[bot]@users.noreply.github.com>'
+echo base > base.txt; git add base.txt
+git commit -qm "base" --trailer "Co-authored-by: $TRAILER"
+git push -q -u origin HEAD || fail "base push failed"
+echo with > with.txt; git add with.txt
+git commit -qm "with" --trailer "Co-authored-by: $TRAILER"
+echo without > without.txt; git add without.txt
+git commit -qm "without"
+out=$(HOME="$UNPUSH_HOME" sh "$STATUS" 2>&1) || true
+echo "$out" | grep -qF "unpushed commits without trailer: 1 of 2" \
+  || fail "(a) expected '1 of 2', got: $out"
+printf 'PASS: unpushed exact-trailer count (1 of 2)\n'
+
+# (b) a commit carrying a DIFFERENT co-author value is reported as missing
+echo diff > diff.txt; git add diff.txt
+git commit -qm "diff" --trailer "Co-authored-by: Someone Else <x@y.z>"
+out=$(HOME="$UNPUSH_HOME" sh "$STATUS" 2>&1) || true
+echo "$out" | grep -qF "unpushed commits without trailer: 2 of 3" \
+  || fail "(b) expected '2 of 3', got: $out"
+printf 'PASS: different co-author value reported as missing\n'
+
+# (c) one commit with TWO trailers (one exact) + one with none -> still 1 of 2
+# (count-based bug: two trailer LINES on one commit used to skew the count)
+git init -q "$TMPDIR/repo5" || fail "git init repo5 failed"
+git init -q --bare "$TMPDIR/remote5.git"
+cd "$TMPDIR/repo5"
+git config --global user.email "test@test.test" 2>/dev/null || true
+git config --global user.name "Test" 2>/dev/null || true
+git remote add origin "$TMPDIR/remote5.git"
+cat > .myanyagent.toml <<EOF
+repository = "anyingiit/My_Nexus-Editor_Workspace"
+installation_id = "151195329"
+[bot]
+name = "MyAnyAgent[bot]"
+email = "312959697+myanyagent[bot]@users.noreply.github.com"
+EOF
+echo base > base.txt; git add base.txt
+git commit -qm "base" --trailer "Co-authored-by: $TRAILER"
+git push -q -u origin HEAD || fail "base push (c) failed"
+echo two > two.txt; git add two.txt
+git commit -qm "two trailers" \
+  --trailer "Co-authored-by: $TRAILER" \
+  --trailer "Signed-off-by: Human <h@e.co>"
+echo none > none.txt; git add none.txt
+git commit -qm "none"
+out=$(HOME="$UNPUSH_HOME" sh "$STATUS" 2>&1) || true
+echo "$out" | grep -qF "unpushed commits without trailer: 1 of 2" \
+  || fail "(c) expected '1 of 2' (count-based bug), got: $out"
+printf 'PASS: two-trailer commit not double-counted\n'
+rm -rf "$UNPUSH_HOME"
+
 printf '\nALL status tests passed\n'
