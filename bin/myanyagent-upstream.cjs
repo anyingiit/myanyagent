@@ -36,6 +36,53 @@ const ALLOWLIST = {
   graphql:         { method: "POST", path: "/graphql" },
 };
 
+const { execFileSync } = require("node:child_process");
+
+// Attribution delivery gate (lib lives next to bin/ in the source repo and in
+// the installed layout). Soft-fail to null when unavailable so upstream API
+// reads never break on a missing lib.
+let attribution = null;
+for (const cand of [
+  path.join(__dirname, "..", "lib", "attribution.cjs"),
+  path.join(os.homedir(), ".local", "share", "myanyagent", "lib", "attribution.cjs"),
+]) {
+  try {
+    attribution = require(cand);
+    break;
+  } catch { /* try next */ }
+}
+
+// Local gate: every commit that would leave this machine (not on any remote)
+// must carry the resolved Co-authored-by trailer. Returns structured results;
+// callers decide policy. Never throws on git errors — returns ok:true with
+// total:0 when no local-only commits exist or git fails.
+function checkAttribution({ cwd, trailer }) {
+  const empty = { ok: true, missing: [], total: 0 };
+  if (!trailer) return empty;
+  let raw;
+  try {
+    raw = execFileSync(
+      "git",
+      ["log", "--format=%H%x00%s%x00%B%x00END", "--branches", "--not", "--remotes"],
+      { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 16 * 1024 * 1024 }
+    );
+  } catch {
+    return empty;
+  }
+  const commits = raw
+    .split("\u0000END\n")
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+    .map((chunk) => {
+      const [sha, subject, ...rest] = chunk.split("\u0000");
+      return { sha, subject, body: rest.join("\u0000") };
+    });
+  const missing = commits
+    .filter((c) => !attribution.hasAttributionTrailer(c.body, trailer))
+    .map((c) => ({ sha: c.sha.slice(0, 12), subject: c.subject }));
+  return { ok: missing.length === 0, missing, total: commits.length };
+}
+
 function fail(msg) {
   console.error(`myanyagent-upstream: ${msg}`);
   process.exitCode = 1;
@@ -205,6 +252,7 @@ read:
 write (DRY-RUN unless --yes):
   fork          --repo o/r
   pr create     --repo o/r --base B --head-branch B --title T --body-file F
+                (runs the attribution gate; --skip-attribution-check bypasses)
   comment       --repo o/r --number n --body-file F
   reply         --repo o/r --pr n --comment-id id --body-file F
   resolve       --thread-id PRRT_...
@@ -324,6 +372,26 @@ body-file "-" reads stdin. token: $MYANYAGENT_UPSTREAM_TOKEN or
         return 1;
       }
       if (!need(flags, "repo", "base", "head-branch", "title", "body-file")) return 1;
+      // Attribution gate: the PR publishes this branch's commits; every one
+      // must disclose AI involvement. Runs before dry-run so violations are
+      // caught even without --yes.
+      if (!flags["skip-attribution-check"] && attribution) {
+        const resolved = attribution.resolveAttribution({
+          tomlPath: path.join(process.cwd(), ".myanyagent.toml"),
+          gitConfigGet: () => "",
+          env: process.env,
+        });
+        if (resolved.trailer && resolved.source !== "bot") {
+          const gate = checkAttribution({ cwd: process.cwd(), trailer: resolved.trailer });
+          if (!gate.ok) {
+            fail(`attribution gate: ${gate.missing.length} of ${gate.total} local commit(s) lack Co-authored-by: ${resolved.trailer}`);
+            for (const c of gate.missing) fail(`  ${c.sha} ${c.subject}`);
+            hint("git rebase / amend to add the trailer, or re-run with --skip-attribution-check");
+            hint("the prepare-commit-msg hook auto-adds it: myanyagent-bootstrap installs the hook");
+            return 1;
+          }
+        }
+      }
       const u = await getUser();
       const body = {
         title: flags.title,
@@ -413,4 +481,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { request, ALLOWLIST };
+module.exports = { request, ALLOWLIST, checkAttribution };

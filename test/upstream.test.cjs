@@ -328,3 +328,55 @@ test("reviews rejects a non-array 200 body with a clear error", async () => {
   assert.match(r.stderr, /unexpected response/i);
   assert.doesNotMatch(r.stderr, /TypeError|at .*\.js:/);
 });
+
+test("checkAttribution flags local-only commits missing the trailer", async (t) => {
+  const { execFileSync } = require("node:child_process");
+  const os = require("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-"));
+  const git = (args, opts = {}) =>
+    execFileSync("git", args, { cwd: dir, encoding: "utf8", ...opts });
+
+  git(["init", "-q"]);
+  git(["config", "user.name", "Test"]);
+  git(["config", "user.email", "test@test.test"]);
+  fs.writeFileSync(path.join(dir, ".myanyagent.toml"),
+    'repository = "o/r"\ninstallation_id = "1"\n[bot]\nname = "MyAnyAgent[bot]"\nemail = "b@b.c"\n');
+
+  const { checkAttribution } = require("../bin/myanyagent-upstream.cjs");
+  const trailer = "MyAnyAgent[bot] <b@b.c>";
+
+  // Commit 1: has trailer. Commit 2: missing.
+  fs.writeFileSync(path.join(dir, "a.txt"), "a");
+  git(["add", "."]);
+  git(["commit", "-q", "-m", "one", "--trailer", `Co-authored-by: ${trailer}`]);
+  fs.writeFileSync(path.join(dir, "b.txt"), "b");
+  git(["add", "."]);
+  git(["commit", "-q", "-m", "two"]);
+
+  const r = checkAttribution({ cwd: dir, trailer });
+  assert.equal(r.total, 2);
+  assert.equal(r.ok, false);
+  assert.equal(r.missing.length, 1);
+  assert.equal(r.missing[0].subject, "two");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("checkAttribution passes when all local-only commits carry the trailer", async () => {
+  const { execFileSync } = require("node:child_process");
+  const os = require("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-"));
+  const git = (args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+  git(["init", "-q"]);
+  git(["config", "user.name", "Test"]);
+  git(["config", "user.email", "test@test.test"]);
+  const { checkAttribution } = require("../bin/myanyagent-upstream.cjs");
+  const trailer = "MyAnyAgent[bot] <b@b.c>";
+  fs.writeFileSync(path.join(dir, "a.txt"), "a");
+  git(["add", "."]);
+  git(["commit", "-q", "-m", "one", "--trailer", `Co-authored-by: ${trailer}`]);
+  const r = checkAttribution({ cwd: dir, trailer });
+  assert.equal(r.ok, true);
+  assert.equal(r.missing.length, 0);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
