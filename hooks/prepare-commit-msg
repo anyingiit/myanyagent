@@ -1,0 +1,48 @@
+#!/bin/sh
+# MyAnyAgent prepare-commit-msg hook: auto-append the resolved Co-authored-by
+# trailer so every commit in a MyAnyAgent repo discloses AI involvement.
+#
+# Resolution: MYANYAGENT_ATTRIBUTION env > [identity].co_author > [bot] block
+# (via lib/attribution.cjs). Never fails the commit; missing node or missing
+# toml simply means no trailer is added (the delivery gate in
+# myanyagent-upstream pr create is the enforcement layer).
+
+COMMIT_MSG_FILE="$1"
+COMMIT_SOURCE="${2:-}"
+
+case "$COMMIT_SOURCE" in
+  merge|squash|commit) exit 0 ;;
+esac
+
+command -v node >/dev/null 2>&1 || exit 0
+command -v git >/dev/null 2>&1 || exit 0
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+toml="$repo_root/.myanyagent.toml"
+[ -f "$toml" ] || exit 0
+
+# lib/ sits next to hooks/ in the source repo, and next to bin/ after install.
+# MYANYAGENT_LIB is a test/escape hatch.
+if [ -n "${MYANYAGENT_LIB:-}" ]; then
+  lib="$MYANYAGENT_LIB/attribution.cjs"
+else
+  hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  for cand in "$hook_dir/../lib/attribution.cjs" "$hook_dir/../../lib/attribution.cjs"; do
+    if [ -f "$cand" ]; then lib="$cand"; break; fi
+  done
+fi
+[ -n "${lib:-}" ] && [ -f "$lib" ] || exit 0
+
+trailer=$(node -e '
+  const { resolveAttribution } = require(process.argv[1]);
+  const r = resolveAttribution({ tomlPath: process.argv[2], gitConfigGet: () => "", env: process.env });
+  if (r.trailer) process.stdout.write(r.trailer);
+' "$lib" "$toml" 2>/dev/null) || exit 0
+[ -n "$trailer" ] || exit 0
+
+# Idempotency + formatting handled by git interpret-trailers itself.
+if git interpret-trailers --parse < "$COMMIT_MSG_FILE" 2>/dev/null | grep -qiF "co-authored-by: $trailer"; then
+  exit 0
+fi
+git interpret-trailers --in-place --trailer "Co-authored-by: $trailer" "$COMMIT_MSG_FILE" 2>/dev/null || exit 0
+exit 0
