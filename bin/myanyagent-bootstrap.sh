@@ -100,6 +100,40 @@ if $contribution_mode; then
   grep -qxF '.myanyagent.toml' "$exclude_file" || printf '%s\n' '.myanyagent.toml' >> "$exclude_file"
 fi
 
+# Attribution hook: every commit in this repo auto-carries the Co-authored-by
+# trailer (agent disclosure). We only ever manage our own hook (marker line),
+# and we never clobber a repo's existing core.hooksPath — if one is set, the
+# hook is copied into that directory instead.
+hook_src="$tool_dir/hooks/prepare-commit-msg"
+if [ -f "$hook_src" ]; then
+  existing_hooks_path=$(git config --local --get core.hooksPath 2>/dev/null || true)
+  if [ -z "$existing_hooks_path" ]; then
+    existing_hooks_path=$(git config --global --get core.hooksPath 2>/dev/null || true)
+  fi
+  if [ -n "$existing_hooks_path" ]; then
+    case "$existing_hooks_path" in
+      /*) hooks_dir="$existing_hooks_path" ;;
+      *) hooks_dir="$repo_root/$existing_hooks_path" ;;
+    esac
+  else
+    hooks_dir=$(git rev-parse --git-path myanyagent-hooks) || fail "cannot resolve git hooks path"
+    case "$hooks_dir" in
+      /*) ;;
+      *) hooks_dir="$repo_root/$hooks_dir" ;;
+    esac
+    git config --local core.hooksPath "$(git rev-parse --git-path myanyagent-hooks)"
+  fi
+  mkdir -p "$hooks_dir"
+  hook_dst="$hooks_dir/prepare-commit-msg"
+  if [ -f "$hook_dst" ] && ! grep -qF '# MyAnyAgent prepare-commit-msg hook' "$hook_dst" 2>/dev/null; then
+    printf 'Attribution hook: NOT installed (foreign prepare-commit-msg exists at %s)\n' "$hook_dst"
+  else
+    cp "$hook_src" "$hook_dst"
+    chmod +x "$hook_dst"
+    printf 'Attribution hook: installed (prepare-commit-msg auto-appends Co-authored-by).\n'
+  fi
+fi
+
 # Smoke test
 credential_result=$(
   printf 'protocol=https\nhost=github.com\npath=%s.git\n\n' "$repository" |

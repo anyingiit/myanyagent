@@ -36,6 +36,11 @@ cp "$script_dir/bin/myanyagent-bootstrap.sh" "$target_bin/"
 chmod +x "$target_bin/myanyagent-bootstrap.sh"
 cp "$script_dir/bin/myanyagent-status.sh" "$target_bin/"
 chmod +x "$target_bin/myanyagent-status.sh"
+mkdir -p "$target_dir/hooks"
+if [ -f "$script_dir/hooks/prepare-commit-msg" ]; then
+  cp "$script_dir/hooks/prepare-commit-msg" "$target_dir/hooks/"
+  chmod +x "$target_dir/hooks/prepare-commit-msg"
+fi
 cp "$script_dir/VERSION" "$target_dir/VERSION"
 
 # Symlinks into ~/.local/bin

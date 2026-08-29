@@ -141,4 +141,34 @@ case "$main_exclude" in /*) ;; *) main_exclude="$TMPDIR/repo2/$main_exclude";; e
 grep -qxF '.myanyagent.toml' "$main_exclude" || fail "worktree: exclude not written to $main_exclude"
 printf 'PASS: contribution mode works in a linked worktree\n'
 
+# --- Test 9: bootstrap installs the attribution hook ---
+cd "$TMPDIR/repo"
+# Simulate an installed tool dir with the hook present
+TOOLHOME=$(mktemp -d)
+mkdir -p "$TOOLHOME/.local/share/myanyagent/bin" "$TOOLHOME/.local/share/myanyagent/hooks"
+cp "$(cd "$(dirname "$BOOTS")" && pwd)/myanyagent-credential-helper.cjs" "$TOOLHOME/.local/share/myanyagent/bin/"
+printf '1' > "$TOOLHOME/.local/share/myanyagent/VERSION"
+cat > "$TOOLHOME/.local/share/myanyagent/hooks/prepare-commit-msg" <<'H'
+#!/bin/sh
+# MyAnyAgent prepare-commit-msg hook
+exit 0
+H
+chmod +x "$TOOLHOME/.local/share/myanyagent/hooks/prepare-commit-msg"
+
+HOME="$TOOLHOME" MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
+
+hooks_path=$(git config --local core.hooksPath 2>/dev/null) || fail "core.hooksPath not set by bootstrap"
+[ -n "$hooks_path" ] || fail "core.hooksPath empty"
+# Resolve relative hooksPath against repo root (git resolves it against worktree root)
+case "$hooks_path" in /*) resolved="$hooks_path" ;; *) resolved="$TMPDIR/repo/$hooks_path" ;; esac
+[ -x "$resolved/prepare-commit-msg" ] || fail "prepare-commit-msg not installed/executable at $resolved"
+grep -qF '# MyAnyAgent prepare-commit-msg hook' "$resolved/prepare-commit-msg" || fail "installed hook missing marker"
+printf 'PASS: bootstrap installs attribution hook\n'
+
+# --- Test 9b: idempotent re-run does not duplicate or clobber ---
+HOME="$TOOLHOME" MYANYAGENT_PRIVATE_KEY="$KEY" sh "$BOOTS" 2>/dev/null || true
+[ "$(git config --local core.hooksPath)" = "$hooks_path" ] || fail "hooksPath changed on re-run"
+printf 'PASS: hook install idempotent\n'
+rm -rf "$TOOLHOME"
+
 printf '\nALL bootstrap tests passed\n'
