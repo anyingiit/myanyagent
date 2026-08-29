@@ -64,11 +64,13 @@ Rules:
   (it only disables `pre-commit` and `commit-msg`), so the trailer is appended
   on every normal `git commit`. The real bypasses are removing the hook or
   plumbing commits with `git commit-tree`.
-- `myanyagent-upstream pr create` refuses to open a PR when the head branch's
-  commits ahead of its upstream lack the trailer; a branch with no upstream
-  fails closed — push it first with `git push -u origin <branch>` (the gate
-  needs a delivery target to have semantics). Fix history (rebase/amend)
-  rather than bypassing.
+- `myanyagent-upstream pr create` refuses to open a PR when any commit in
+  `<base>..<head-branch>` — the commits the PR will contain — lacks the
+  trailer. The gate resolves the base ref locally (origin/<base>, else local
+  `<base>`, else any local ref); if it cannot, it fails closed asking you to
+  `git fetch origin <base>` first. It never fetches itself, and pushing the
+  head branch does not hide commits. Fix history (rebase/amend) rather than
+  bypassing.
 - The trailer discloses tool involvement; the human remains the sole author.
   Do NOT add `Signed-off-by` on the human's behalf.
 

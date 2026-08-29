@@ -52,18 +52,21 @@ for (const cand of [
   } catch { /* try next */ }
 }
 
-// Local gate: every commit that this PR would publish — the ahead-set of the PR
-// head branch relative to ITS upstream — must carry the resolved Co-authored-by
-// trailer. The branch's upstream is the delivery target, so the range is
-// `@{upstream}..HEAD` (or `<upstream>..<branch>` when --head-branch names a
-// different local branch). This is symmetric across push: pushing the commits
-// elsewhere does not hide them, and only the PR branch is ever checked.
+// Local gate: every commit this PR would publish — the set `<base>..<head>`,
+// i.e. the same commits GitHub will put in the PR diff — must carry the
+// resolved Co-authored-by trailer. The base is the PR's target branch from the
+// invocation (--base); the head is the --head-branch value or the current
+// branch. The gate NEVER fetches: it resolves the base ref locally, in order:
+//   1. `origin/<base>` remote-tracking ref, else
+//   2. local branch `<base>`, else
+//   3. `<base>` as any other local ref (e.g. `upstream/<base>`), else
+//   4. FAIL CLOSED — cannot resolve the base locally, `git fetch` first.
+// This is independent of push state: `git push -u origin <head>` before
+// pr create does not shrink the range (C2).
 //
-// No upstream configured => FAIL CLOSED: the gate has no delivery target to
-// compare against, so it reports not-ok with a `git push -u origin <branch>`
-// hint. Other git failures stay soft (ok:true, total:0) so odd repos or
-// transient errors never break the API flow.
-function checkAttribution({ cwd, trailer, headBranch }) {
+// Only the unresolvable-base case fails closed. Other git failures stay soft
+// (ok:true, total:0) so odd repos or transient errors never break the API flow.
+function checkAttribution({ cwd, trailer, base, headBranch }) {
   const empty = { ok: true, missing: [], total: 0 };
   if (!trailer) return empty;
   const git = (args, opts = {}) =>
@@ -85,26 +88,33 @@ function checkAttribution({ cwd, trailer, headBranch }) {
     branch = headBranch;
   }
 
-  let upstream;
-  try {
-    upstream = git(["rev-parse", "--abbrev-ref", `${branch}@{upstream}`]).trim();
-  } catch (e) {
-    const err = String((e && e.stderr) || (e && e.message) || "").toLowerCase();
-    if (err.includes("no upstream configured")) {
+  const verify = (ref) => {
+    try {
+      git(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  let baseRef = null;
+  if (base) {
+    if (verify(`refs/remotes/origin/${base}`)) baseRef = `origin/${base}`;
+    else if (verify(`refs/heads/${base}`)) baseRef = base;
+    else if (verify(base)) baseRef = base; // any other local ref (e.g. upstream/<base>)
+    else
       return {
         ok: false,
         missing: [],
         total: 0,
+        base,
         branch,
-        error: `branch '${branch}' has no upstream configured — the attribution gate needs a delivery target; git push -u origin ${branch} first`,
+        error: `cannot resolve base ref '${base}' locally; run git fetch origin ${base} first`,
       };
-    }
-    return empty;
   }
 
   let raw;
   try {
-    raw = git(["log", "--format=%H%x00%s%x00%B%x00END", `${upstream}..${branch}`]);
+    raw = git(["log", "--format=%H%x00%s%x00%B%x00END", baseRef ? `${baseRef}..${branch}` : "HEAD"]);
   } catch {
     return empty;
   }
@@ -119,7 +129,7 @@ function checkAttribution({ cwd, trailer, headBranch }) {
   const missing = commits
     .filter((c) => !attribution.hasAttributionTrailer(c.body, trailer))
     .map((c) => ({ sha: c.sha.slice(0, 12), subject: c.subject }));
-  return { ok: missing.length === 0, missing, total: commits.length };
+  return { ok: missing.length === 0, missing, total: commits.length, base: baseRef || null, branch };
 }
 
 function fail(msg) {
@@ -291,9 +301,9 @@ read:
 write (DRY-RUN unless --yes):
   fork          --repo o/r
   pr create     --repo o/r --base B --head-branch B --title T --body-file F
-                (runs the attribution gate: commits ahead of the head branch's
-                upstream must carry the trailer; a branch with no upstream
-                fails closed until you git push -u origin <branch> first;
+                (runs the attribution gate: every commit in <base>..<head-branch>
+                — what the PR will contain — must carry the trailer; the base
+                ref must resolve locally, git fetch origin <base> first if not;
                 --skip-attribution-check bypasses)
   comment       --repo o/r --number n --body-file F
   reply         --repo o/r --pr n --comment-id id --body-file F
@@ -427,12 +437,12 @@ body-file "-" reads stdin. token: $MYANYAGENT_UPSTREAM_TOKEN or
           const gate = checkAttribution({
             cwd: process.cwd(),
             trailer: resolved.trailer,
+            base: flags.base,
             headBranch: flags["head-branch"],
           });
           if (!gate.ok) {
             if (gate.error) {
               fail(`attribution gate: ${gate.error}`);
-              hint(`git push -u origin ${gate.branch} first, then re-run this command`);
               return 1;
             }
             fail(`attribution gate: ${gate.missing.length} of ${gate.total} local commit(s) lack Co-authored-by: ${resolved.trailer}`);

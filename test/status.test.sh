@@ -154,6 +154,8 @@ printf '1' > "$UNPUSH_HOME/.local/share/myanyagent/VERSION"
 
 # --- Test 10: unpushed commits missing the exact trailer value ---
 # (a) one commit with the trailer + one without -> "1 of 2"
+# The PR base is origin/HEAD (remote default branch), so it must resolve:
+# set it on the bare remote and set the local symref, like clone/fetch would.
 git init -q "$TMPDIR/repo4" || fail "git init repo4 failed"
 git init -q --bare "$TMPDIR/remote4.git"
 cd "$TMPDIR/repo4"
@@ -171,6 +173,8 @@ TRAILER='MyAnyAgent[bot] <312959697+myanyagent[bot]@users.noreply.github.com>'
 echo base > base.txt; git add base.txt
 git commit -qm "base" --trailer "Co-authored-by: $TRAILER"
 git push -q -u origin HEAD || fail "base push failed"
+git --git-dir="$TMPDIR/remote4.git" symbolic-ref HEAD refs/heads/master
+git remote set-head origin --auto >/dev/null 2>&1 || fail "set-head failed"
 echo with > with.txt; git add with.txt
 git commit -qm "with" --trailer "Co-authored-by: $TRAILER"
 echo without > without.txt; git add without.txt
@@ -178,6 +182,8 @@ git commit -qm "without"
 out=$(HOME="$UNPUSH_HOME" sh "$STATUS" 2>&1) || true
 echo "$out" | grep -qF "unpushed commits without trailer: 1 of 2" \
   || fail "(a) expected '1 of 2', got: $out"
+echo "$out" | grep -qF "unpushed commits: cannot determine PR base" \
+  && fail "(a) origin/HEAD must resolve; got: $out" || true
 printf 'PASS: unpushed exact-trailer count (1 of 2)\n'
 
 # (b) a commit carrying a DIFFERENT co-author value is reported as missing
@@ -206,6 +212,8 @@ EOF
 echo base > base.txt; git add base.txt
 git commit -qm "base" --trailer "Co-authored-by: $TRAILER"
 git push -q -u origin HEAD || fail "base push (c) failed"
+git --git-dir="$TMPDIR/remote5.git" symbolic-ref HEAD refs/heads/master
+git remote set-head origin --auto >/dev/null 2>&1 || fail "set-head (c) failed"
 echo two > two.txt; git add two.txt
 git commit -qm "two trailers" \
   --trailer "Co-authored-by: $TRAILER" \
@@ -216,6 +224,40 @@ out=$(HOME="$UNPUSH_HOME" sh "$STATUS" 2>&1) || true
 echo "$out" | grep -qF "unpushed commits without trailer: 1 of 2" \
   || fail "(c) expected '1 of 2' (count-based bug), got: $out"
 printf 'PASS: two-trailer commit not double-counted\n'
+
+# --- Test 11: no origin/HEAD -> informational line, not a needs_action failure ---
+git init -q "$TMPDIR/repo6" || fail "git init repo6 failed"
+git init -q --bare "$TMPDIR/remote6.git"
+cd "$TMPDIR/repo6"
+git config --global user.email "test@test.test" 2>/dev/null || true
+git config --global user.name "Test" 2>/dev/null || true
+git remote add origin "$TMPDIR/remote6.git"
+cat > .myanyagent.toml <<EOF
+repository = "anyingiit/My_Nexus-Editor_Workspace"
+installation_id = "151195329"
+[bot]
+name = "MyAnyAgent[bot]"
+email = "312959697+myanyagent[bot]@users.noreply.github.com"
+EOF
+git config --local myanyagent.repository "anyingiit/My_Nexus-Editor_Workspace"
+git config --local credential.helper '!node "/home/u/.local/share/myanyagent/bin/myanyagent-credential-helper.cjs"'
+hooks_dir=$(git rev-parse --git-path myanyagent-hooks)
+case "$hooks_dir" in /*) ;; *) hooks_dir="$PWD/$hooks_dir" ;; esac
+mkdir -p "$hooks_dir"
+cat > "$hooks_dir/prepare-commit-msg" <<'H'
+#!/bin/sh
+# MyAnyAgent prepare-commit-msg hook
+exit 0
+H
+chmod +x "$hooks_dir/prepare-commit-msg"
+git config --local core.hooksPath "$(git rev-parse --git-path myanyagent-hooks)"
+# No commit, no fetch, and origin/HEAD never set -> base unresolvable.
+out=$(HOME="$UNPUSH_HOME" sh "$STATUS" 2>&1) || true
+echo "$out" | grep -qF "unpushed commits: cannot determine PR base (no origin/HEAD)" \
+  || fail "(a) expected informational base line, got: $out"
+echo "$out" | grep -qF "git fetch origin main" \
+  || fail "(a) expected git fetch origin main hint, got: $out"
+printf 'PASS: no origin/HEAD yields informational base line, no crash\n'
 rm -rf "$UNPUSH_HOME"
 
 printf '\nALL status tests passed\n'

@@ -161,10 +161,12 @@ defense is layered enforcement:
 3. `myanyagent-status` (visibility) — drift between expected and actual state
    is reported with `-> run:` remediation.
 4. `myanyagent-upstream pr create` (delivery gate) — the only layer the agent
-   cannot route around through this toolchain: every commit on the PR head
-   branch that is ahead of its upstream must carry the trailer, or PR creation
-   is blocked. A branch with no upstream fails closed (the gate has no
-   delivery target) until the user runs `git push -u origin <branch>`.
+   cannot route around through this toolchain: every commit in
+   `<base>..<head-branch>` (what the PR will contain) must carry the trailer,
+   or PR creation is blocked. The gate resolves the base ref locally —
+   `origin/<base>`, else local branch `<base>`, else any local ref — and fails
+   closed with `git fetch origin <base>` guidance if it cannot; it never
+   fetches, and pushing the head branch does not shrink the checked range.
 
 Residual risk, accepted by design: an agent with shell access can still commit
 and push without ever invoking `pr create` (e.g. direct push to an own-repo

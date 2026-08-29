@@ -137,17 +137,25 @@ else
   needs_action=true
 fi
 
-# Unpushed commits missing the exact trailer (only meaningful when trailer + upstream exist).
-# For each commit in @{upstream}..HEAD, parse its trailer block via
+# Unpushed commits missing the exact trailer (only meaningful when trailer + a
+# PR base exist). The PR base is the remote's default branch: refs/remotes/origin/HEAD
+# when it resolves (set by clone, `git remote set-head origin --auto`, or fetch).
+# For each commit in <base>..HEAD, parse its trailer block via
 # `git interpret-trailers --parse` and require a Co-authored-by whose value
 # EQUALS the resolved trailer. A commit with a different co-author value (or a
 # trailer line inside body prose) is still reported as missing.
+# No resolvable base => informational line only (read-only observability): it
+# does NOT count as needs_action, matching the gate's fail-closed behavior only
+# at the pr create step itself.
 if [ -n "$attr_trailer" ] && [ -n "$repo_root" ]; then
-  upstream=$(git rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)
-  if [ -n "$upstream" ]; then
+  base=""
+  if git symbolic-ref -q refs/remotes/origin/HEAD >/dev/null 2>&1; then
+    base="origin/HEAD"
+  fi
+  if [ -n "$base" ]; then
     missing=0
     total=0
-    for sha in $(git rev-list "@{upstream}..HEAD" 2>/dev/null || true); do
+    for sha in $(git rev-list "$base..HEAD" 2>/dev/null || true); do
       total=$((total + 1))
       if ! git log --format=%B -n1 "$sha" 2>/dev/null | git interpret-trailers --parse 2>/dev/null |
          awk -v want="$attr_trailer" '
@@ -162,6 +170,9 @@ if [ -n "$attr_trailer" ] && [ -n "$repo_root" ]; then
       printf 'unpushed commits without trailer: %s of %s\n' "$missing" "$total"
       needs_action=true
     fi
+  else
+    printf 'unpushed commits: cannot determine PR base (no origin/HEAD)\n'
+    printf '%s\n' "-> info: use the same base you'll pass to pr create: git fetch origin <base> (e.g. git fetch origin main)"
   fi
 fi
 
