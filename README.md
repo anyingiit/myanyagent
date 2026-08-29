@@ -50,6 +50,22 @@ The tool is designed for agent use with zero prior knowledge:
 
 No command memorization required; the tool self-describes the next step.
 
+### OpenCode skill
+
+An [OpenCode skill](https://opencode.ai) for this tool ships in the repo at
+`skills/myanyagent/SKILL.md`. To let an OpenCode agent load it automatically,
+install or symlink it into the user skills directory:
+
+```sh
+mkdir -p ~/.config/opencode/skills
+ln -s "$(pwd)/skills/myanyagent" ~/.config/opencode/skills/myanyagent
+```
+
+The skill tells the agent when to use MyAnyAgent, how the GitHub App
+credential-helper flow works, and which commands to run (`myanyagent-status`,
+`myanyagent-bootstrap`, `myanyagent-upstream`) — complementing the runtime
+`-> run:` hints above.
+
 ## Commands
 
 | Command | Purpose |
