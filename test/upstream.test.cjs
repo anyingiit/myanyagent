@@ -45,7 +45,7 @@ after(() => {
   server.close();
 });
 
-function run(args, { env = {}, input } = {}) {
+function run(args, { env = {}, input, cwd } = {}) {
   const e = {
     ...process.env,
     MYANYAGENT_UPSTREAM_BASE_URL: baseURL,
@@ -59,7 +59,7 @@ function run(args, { env = {}, input } = {}) {
   // Async spawn: the mock server lives in THIS process, so a sync spawn would
   // deadlock (parent blocked waiting for child -> server never responds).
   return new Promise((resolve, reject) => {
-    const c = spawn("node", [BIN, ...args], { env: e, timeout: 20000 });
+    const c = spawn("node", [BIN, ...args], { env: e, timeout: 20000, ...(cwd ? { cwd } : {}) });
     let stdout = "";
     let stderr = "";
     c.stdout.on("data", (d) => (stdout += d));
@@ -192,7 +192,7 @@ test("pr create composes head as <login>:<branch> learned from GET /user", async
   const r = await run([
     "pr", "create", "--repo", "o/r", "--base", "main",
     "--head-branch", "fix-x", "--title", "My fix", "--body-file", f, "--yes",
-  ]);
+  ], { cwd: tmpHome() });
   assert.equal(r.status, 0, r.stderr);
   const prHit = hits.find((h) => h.url === "/repos/o/r/pulls");
   assert.ok(prHit, "pulls endpoint was called");
@@ -316,7 +316,7 @@ test("flag values starting with -- are consumed as values, not flags", async () 
   const r = await run([
     "pr", "create", "--repo", "o/r", "--base", "main",
     "--head-branch", "fix", "--title", "--wip title", "--body-file", f,
-  ]);
+  ], { cwd: tmpHome() });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /"title": "--wip title"/);
 });
@@ -378,5 +378,43 @@ test("checkAttribution passes when all local-only commits carry the trailer", as
   const r = checkAttribution({ cwd: dir, trailer });
   assert.equal(r.ok, true);
   assert.equal(r.missing.length, 0);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// Locks the plan's gate semantics: the attribution gate enforces for EVERY
+// resolved trailer source — including [bot]-only repos (ruling: bot identity
+// is the transport credential; the trailer is authorship disclosure; the two
+// are orthogonal, and the policy must close on this repo itself).
+test("pr create gate blocks a [bot]-only repo whose commits lack the trailer", async () => {
+  const { execFileSync } = require("node:child_process");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-bot-"));
+  const git = (args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+  git(["init", "-q"]);
+  git(["config", "user.name", "Test"]);
+  git(["config", "user.email", "test@test.test"]);
+  fs.writeFileSync(path.join(dir, ".myanyagent.toml"),
+    'repository = "o/r"\ninstallation_id = "1"\n[bot]\nname = "MyAnyAgent[bot]"\nemail = "b@b.c"\n');
+  fs.writeFileSync(path.join(dir, "a.txt"), "a");
+  git(["add", "."]);
+  git(["commit", "-q", "-m", "no trailer here"]);
+
+  route = ({ url }) =>
+    url === "/user"
+      ? { status: 200, json: { login: "me", id: 42 } }
+      : { status: 201, json: { number: 5, html_url: "https://example/pr/5" } };
+  const f = path.join(dir, "body.md");
+  fs.writeFileSync(f, "pr body\n");
+  const before = hits.length;
+  const r = await run([
+    "pr", "create", "--repo", "o/r", "--base", "main",
+    "--head-branch", "fix-x", "--title", "My fix", "--body-file", f, "--yes",
+  ], { cwd: dir });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stderr, /attribution gate/);
+  assert.match(r.stderr, /Co-authored-by: MyAnyAgent\[bot\] <b@b\.c>/);
+  assert.ok(
+    !hits.slice(before).some((h) => h.url === "/repos/o/r/pulls"),
+    "mock server must not receive a /pulls request when the gate blocks",
+  );
   fs.rmSync(dir, { recursive: true, force: true });
 });

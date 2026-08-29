@@ -381,7 +381,7 @@ body-file "-" reads stdin. token: $MYANYAGENT_UPSTREAM_TOKEN or
           gitConfigGet: () => "",
           env: process.env,
         });
-        if (resolved.trailer && resolved.source !== "bot") {
+        if (resolved.trailer) {
           const gate = checkAttribution({ cwd: process.cwd(), trailer: resolved.trailer });
           if (!gate.ok) {
             fail(`attribution gate: ${gate.missing.length} of ${gate.total} local commit(s) lack Co-authored-by: ${resolved.trailer}`);
