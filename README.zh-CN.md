@@ -1,124 +1,152 @@
-# MyAnyAgent — 使用指南
+# MyAnyAgent
 
 [English](README.md) | 简体中文
 
-MyAnyAgent 是给 **AI agent** 用的工具，由**人**来操作。你不需要自己运行
-它的命令——你告诉 agent 想要什么，agent 会驱动这个工具完成。本 README
-教你该说什么。
+MyAnyAgent 让 **AI agent** 替你向 GitHub 推送代码——不需要密码，也
+不需要把 PAT 留在仓库里。你只需在浏览器里做一次设置；之后你只要告诉
+agent 想要什么（"推上去"、"向上游开 PR"），认证由它自己完成。
 
-## 一次性安装
+**一行说清原理：** 你注册一个 GitHub App（一次性），agent 用它的私钥
+为每次推送换取短时效 token；同时每个提交自动附加 `Co-authored-by:`
+AI 披露 trailer。
+
+## 从零到能用（约 10 分钟）
+
+### 第 0 步 — 前置条件
+
+一台装有 `git` 和 Node.js 18+ 的 Linux/macOS 机器：
 
 ```sh
+git --version && node --version
+```
+
+### 第 1 步 — 创建你的 GitHub App（浏览器，约 5 分钟）
+
+1. 按照官方教程
+   [注册一个 GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)。
+   注册时注意：
+   - **权限**：只设 **Contents → Read and write**（其余都保持 "No access"）
+   - **Webhook**：取消 "Active"（用不到）
+   - **可安装范围**："Only on this account"
+2. 创建完成后，在同一设置页点击 **"Generate a private key"** 下载
+   `.pem` 文件。（教程：
+   [私钥管理](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)。）
+3. 把 App 安装到你自己的账号上：
+   [官方教程](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app)，
+   勾选你要推送的仓库。
+
+**在 App 设置页记下三个值：** **App ID**、**Client ID**，以及安装的
+数字 ID（打开 `https://github.com/settings/installations/<ID>` 的配置
+页时，URL 里的数字）。
+
+### 第 2 步 — 把私钥保存到本机
+
+```sh
+mkdir -p ~/.secrets
+mv ~/Downloads/*.pem ~/.secrets/myanyagent.private-key.pem
+chmod 600 ~/.secrets/myanyagent.private-key.pem
+```
+
+（路径随意——下一步配置会指向它。绝不提交进仓库。）
+
+### 第 3 步 — 安装 MyAnyAgent
+
+```sh
+git clone https://github.com/anyingiit/myanyagent.git
+cd myanyagent
 sh install.sh
 ```
 
-这是你唯一需要亲手执行的步骤。它会安装工具并配置好认证
-（GitHub App token，无需密码）。如果缺少前置条件，agent 会明确
-告诉你装什么。
+然后编辑它打印出来的配置文件：
 
-前置条件：`git`、Node.js 18+。其余交给 agent——只有当你关心内部
-原理时才需要读 [docs/reference.md](docs/reference.md)。
+```sh
+nano ~/.config/myanyagent/config.toml    # 或任意编辑器
+```
 
-## 准备鉴权凭据（只能由人完成，必需）
+填入第 1 步记下的三个值：
 
-在 `sh install.sh` 真正能认证推送之前，**你**必须先准备一个密钥并
-填好配置。这些步骤 agent 替代不了——需要你的 GitHub 账号在浏览器
-里操作。
+```toml
+client_id  = "Iv23xxxxxxx"     # <- App 页的 Client ID
+app_id     = "12345678"        # <- App 页的 App ID
+private_key = "~/.secrets/myanyagent.private-key.pem"
+```
 
-### 1. GitHub App 私钥（必需——用于 `git push` 认证）
+如果 `~/.local/bin` 不在 PATH（install.sh 会警告），加上它：
 
-1. 在你的账号下**注册一个 GitHub App**：
-   [官方教程](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)。
-   注册时把 **Contents → Read & write** 设为唯一所需权限；webhook
-   可以保持关闭。
-2. **把它安装到你自己的账号**：
-   [安装自己的 GitHub App](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app)，
-   选择它覆盖的仓库。
-3. 在 App 设置页**生成私钥**：
-   [私钥管理](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)。
-   把下载的 `.pem` 保存为
-   `~/.secrets/myanyagent.<日期>.private-key.pem`（权限 `0600`），
-   绝不提交进任何仓库。
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.profile && . ~/.profile
+```
 
-### 2. 必须给予的配置
+### 第 4 步 — 启用一个仓库（每仓库一次）
 
-| 文件 | 必填值 | 值从哪里来 |
-|---|---|---|
-| `~/.config/myanyagent/config.toml`（机器级，由 `install.sh` 写入） | `client_id`、`app_id`、`private_key` | App 设置页显示 **App ID** 和 **Client ID**；`private_key` 即上面 `.pem` 的路径 |
-| `<repo>/.myanyagent.toml`（每仓库） | `repository`、`installation_id`、`[bot]` 名/邮箱 | `installation_id` 是安装配置页 URL 里的数字（`github.com/settings/installations/<id>`）；`[bot]` 名是 App 页显示的 app-slug 形式（如 `MyAnyAgent[bot]`），邮箱格式为 `<bot用户id>+<bot名>@users.noreply.github.com` |
+在你要推送的仓库里创建 `.myanyagent.toml`：
 
-文件就位后，在仓库里运行 `myanyagent-bootstrap`（或交给 agent），
-工具即生效。逐字段完整说明见
-[docs/reference.md](docs/reference.md)。
+```toml
+repository = "you/your-repo"    # <- 该文件所在的仓库
+installation_id = "123456"     # <- 第 1 步安装页 URL 里的数字
+[bot]
+name  = "your-app[bot]"        # <- App 页显示的 bot 名
+email = "11111111+your-app[bot]@users.noreply.github.com"
+#       ^ bot 用户 ID（App 设置 → Advanced 页可见），加 app slug
+```
 
-### 3. 上游 PAT（可选——第三方公共仓库贡献）
+提交它，然后运行：
 
-对未安装你的 App 的仓库评论/开 PR，需要一个 classic PAT：
-[创建 classic personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)，
-scope 只选 **`public_repo`**，保存到
-`~/.secrets/myanyagent-upstream.pat`（权限 `0600`）。只往自己仓库
-推送的话可跳过。
+```sh
+myanyagent-bootstrap
+```
 
-## 在启用 MyAnyAgent 的仓库中工作
+完成——`git push` 现在通过你的 App 认证。验证一下：
 
-仓库里存在 `.myanyagent.toml` 文件即表示已启用。像平常一样和
-agent 协作即可：
+```sh
+myanyagent-status    # 结尾应显示: OK
+```
 
-- **"把这几个提交推上去"** → agent 直接推送，认证自动完成
-- **"向上游开一个 PR"** → agent 运行 PR 命令；若任何提交缺少
-  AI 披露（`Co-authored-by:`）会被拒绝——trailer 会自动附加，
-  所以你几乎不会遇到这个报错
-- **"在那个仓库的 PR #12 下评论"** → agent 通过白名单 upstream
-  适配器完成
+### 可选 — 上游贡献（第三方公共仓库）
 
-你不需要知道哪条命令干什么。agent 只会在两种情况下找到你：
+要评论 / 开 PR 的仓库**没有**安装你的 App 时，补一个 classic PAT：
+[官方教程](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+（scope 只选 `public_repo`）：
 
-1. **新仓库首次使用** —— agent 可能请你在那里运行一次
-   `myanyagent-bootstrap`（一条命令，一次而已）。
-2. **出问题了** —— agent 会看到 `-> run: ...` 提示并自己修好，
-   顺着工具的自描述消息走。
+```sh
+install -m 600 /dev/stdin ~/.secrets/myanyagent-upstream.pat <<< "ghp_xxxx"
+```
 
-## 你可以让 agent 做什么
+只往自己仓库推送的话可跳过。
+
+## 日常使用 — 直接对 agent 说
+
+从这里开始，**你再也不需要亲自运行任何工具命令**。说：
 
 | 你说 | 发生什么 |
 |---|---|
-| "推送我的分支" | GitHub App token 认证；提交自动携带 AI 披露 |
-| "Fork 这个仓库并开 PR" | 通过 dry-run 优先的适配器 fork + 开 PR（每次写操作先展示计划） |
-| "在上游 PR 评论 / 回复 / resolve 线程" | 以你的身份做白名单内的 API 写操作，绝不静默——确认前一律 dry-run |
-| "这里认证状态如何？" | `myanyagent-status` 报告：全绿（`OK`）或 `-> run:` 修复提示 |
-| "读我的 GitHub 通知 / PR review" | 只读命令，零风险 |
+| "推送我的分支" | agent 推送；认证自动完成；提交自动携带 AI 披露 |
+| "fork 这个仓库并开 PR" | 先 dry-run 展示，确认后执行 |
+| "在上游 PR #12 下评论" | 白名单内的 API 写操作，先 dry-run |
+| "把上游 issue #5 关闭为 completed" | 带原因的 `issue close` |
+| "看下认证状态" | agent 运行 `myanyagent-status`，顺着 `-> run:` 提示自愈 |
 
-## 为什么可以放心让 agent 驱动
-
-- 所有上游写操作**先 dry-run**——agent 先看到将要发送什么，
-  然后才会真的发生。
-- 只有**固定白名单内的端点**可调用，其余一律拒绝。
-- Token **短时效或文件锁（0600）**，绝不进 argv、URL 或日志。
-- **AI 披露是强制的**：提交自动携带 `Co-authored-by:`，包含
-  未披露 AI 提交的 PR 会被拒绝创建。
-- 任何失败工具都会打印 `-> run:` 提示——agent 自愈，不会乱撞。
+工具是自描述的：任何环节出错都会打印 `-> run: <命令>`，agent（或你）
+永远知道下一步是什么。
 
 ## OpenCode 用户
 
-如果你使用 [OpenCode](https://opencode.ai)，安装随附的 skill，
-agent 从一开始就认识 MyAnyAgent：
+装上随附的 skill，agent 从一开始就认识这个工具：
 
 ```sh
 mkdir -p ~/.config/opencode/skills
 ln -s "$(pwd)/skills/myanyagent" ~/.config/opencode/skills/myanyagent
 ```
 
-## 延伸阅读
+## 深入了解
 
-- [docs/reference.md](docs/reference.md) — 完整内部原理：配置
-  文件、凭据流、白名单、命令
+- [docs/reference.md](docs/reference.md) — 每个配置字段、token 签发
+  流程、端点白名单、全部命令
 - [docs/contributing-to-third-party-repos.md](docs/contributing-to-third-party-repos.md)
-  — 上游模型背后的调研记录
+  — 上游模型背后的调研笔记
+- [README.md](README.md) — 同一指南的英文版
 
 ## 测试
-
-测试套件也与 agent 相关——对 agent 说"运行 myanyagent 测试"它
-就知道怎么做：
 
 ```sh
 node --test test/helper.test.cjs

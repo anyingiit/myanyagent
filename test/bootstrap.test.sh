@@ -55,6 +55,24 @@ if MYANYAGENT_PRIVATE_KEY="/nonexistent/key.pem" sh "$BOOTS" 2>/dev/null; then
 fi
 printf 'PASS: missing private key rejected\n'
 
+# --- Test 3b: missing key error mentions HOW to fix it (config.toml alignment) ---
+ERR=$(MYANYAGENT_PRIVATE_KEY="/nonexistent/key.pem" sh "$BOOTS" 2>&1) || true
+echo "$ERR" | grep -q 'config.toml' || fail "missing-key error does not mention config.toml"
+echo "$ERR" | grep -q 'private_key' || fail "missing-key error does not mention private_key field"
+printf 'PASS: missing-key error explains config.toml alignment\n'
+
+# --- Test 3c: bootstrap refuses a config whose private_key is still REPLACE_ME ---
+PHOME="$TMPDIR/phome"
+mkdir -p "$PHOME/.config/myanyagent"
+cp "$(dirname "$BOOTS")/../config/config.template.toml" "$PHOME/.config/myanyagent/config.toml"
+if HOME="$PHOME" sh "$BOOTS" 2>/dev/null; then
+  fail "bootstrap should refuse a REPLACE_ME placeholder config"
+fi
+ERR=$(HOME="$PHOME" sh "$BOOTS" 2>&1) || true
+echo "$ERR" | grep -qi 'placeholder' || fail "placeholder error does not point at the placeholder values"
+echo "$ERR" | grep -q 'config.toml' || fail "placeholder error does not mention where the config lives"
+printf 'PASS: bootstrap refuses placeholder config with a clear message\n'
+
 # --- Test 4: writes correct .git/config when key exists (offline: skip smoke test) ---
 # Generate a dummy RSA key so the key-exists check passes.
 KEY="$TMPDIR/dummy.pem"

@@ -78,7 +78,7 @@ if (require.main === module) {
   const clientId = machineConfig("client_id");
   const keyFile = process.env.MYANYAGENT_PRIVATE_KEY ||
     localConfig("myanyagent.privateKey") ||
-    path.join(os.homedir(), ".secrets", "myanyagent.2026-08-04.private-key.pem");
+    path.join(os.homedir(), ".secrets", "myanyagent.private-key.pem");
 
   if (!clientId) { fail("client_id not found in ~/.config/myanyagent/config.toml"); return; }
   if (!installationId) { fail("myanyagent.installationId not set in git config"); return; }

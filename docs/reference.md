@@ -17,7 +17,7 @@ This installs the tool to `~/.local/share/myanyagent/`, creates symlinks
 in `~/.local/bin/`, and writes `~/.config/myanyagent/config.toml`.
 
 Prerequisites: `git`, `node` 18+, and the GitHub App private key at
-`~/.secrets/myanyagent.<date>.private-key.pem` (provision separately,
+`~/.secrets/myanyagent.private-key.pem` (any path the config points at; provision separately,
 never commit).
 
 Offline/air-gapped machines can skip bootstrap's credential smoke test
@@ -77,7 +77,7 @@ do them. Official tutorials:
 
 | File | Purpose |
 |---|---|
-| `~/.secrets/myanyagent.<date>.private-key.pem` | GitHub App private key (signs JWTs) |
+| `~/.secrets/myanyagent.private-key.pem` | GitHub App private key (signs JWTs) |
 | `~/.secrets/myanyagent-upstream.pat` | Classic PAT `public_repo` for the human (upstream writes) |
 
 ## How the Credential Flow Works
@@ -101,7 +101,7 @@ do them. Official tutorials:
 1. `MYANYAGENT_PRIVATE_KEY` env var (absolute path)
 2. `git config --local myanyagent.privateKey`
 3. `~/.config/myanyagent/config.toml` → `private_key` field
-4. Fallback: `~/.secrets/myanyagent.2026-08-04.private-key.pem`
+4. Fallback: `~/.secrets/myanyagent.private-key.pem`
 
 ## Agent Discovery Protocol
 

@@ -54,8 +54,18 @@ ln -sf "$target_bin/myanyagent-upstream.cjs" "$local_bin/myanyagent-upstream"
 if [ ! -f "$config_file" ] || $reset_config; then
   cp "$script_dir/config/config.template.toml" "$config_file"
   printf 'Config written to %s\n' "$config_file"
+  printf '\nNEXT STEPS (you must do these by hand; the agent cannot):\n'
+  printf '  1. Edit %s — set client_id, app_id and private_key\n' "$config_file"
+  printf '     to YOUR GitHub App values (tutorials: see README, "Prepare the credentials").\n'
+  printf '  2. Save the App private key to the private_key path (mode 0600).\n'
+  printf '  3. In each repo: create .myanyagent.toml, then run: myanyagent-bootstrap\n'
 else
   printf 'Config preserved at %s (use --reset-config to regenerate)\n' "$config_file"
+  case $(sed -n 's/^[[:space:]]*client_id[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' "$config_file" | head -1) in
+    REPLACE_ME|"")
+      printf 'WARNING: config still contains placeholder values — edit it before use.\n'
+      ;;
+  esac
 fi
 
 printf 'MyAnyAgent tool installed to %s\n' "$target_dir"

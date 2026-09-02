@@ -69,8 +69,16 @@ elif [ -f "$config_file" ]; then
   # Expand ~ in path
   case "$key_file" in '~'*) key_file="$HOME${key_file#"~"}" ;; esac
 fi
-[ -n "$key_file" ] || fail "private key path not configured (set MYANYAGENT_PRIVATE_KEY or private_key in config.toml)"
-[ -r "$key_file" ] || fail "private key is missing or unreadable: $key_file"
+[ -n "$key_file" ] || fail "private key path not configured (set MYANYAGENT_PRIVATE_KEY or private_key in $config_file)"
+if [ "$key_file" = "REPLACE_ME" ]; then
+  fail "config.toml still has placeholder values — edit $config_file: set client_id, app_id and private_key to your GitHub App values (see README 'Prepare the credentials')"
+fi
+if [ ! -r "$key_file" ]; then
+  printf '%s\n' "myanyagent: private key is missing or unreadable: $key_file" >&2
+  printf '%s\n' "-> fix: either save your key at this exact path, or edit private_key in $config_file to point at where you saved it" >&2
+  printf '%s\n' "-> run: myanyagent-status   (inspect)" >&2
+  exit 1
+fi
 
 # Tool paths
 tool_dir="$HOME/.local/share/myanyagent"

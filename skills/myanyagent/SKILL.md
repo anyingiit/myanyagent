@@ -28,7 +28,7 @@ Git push/fetch auth is `myanyagent` exclusively: **no** `gh` CLI auth, no SSH ke
 | Component | Location | Purpose |
 |---|---|---|
 | Machine config | `~/.config/myanyagent/config.toml` | `client_id`, `app_id`, `private_key` path |
-| RSA private key | `~/.secrets/myanyagent.<date>.private-key.pem` | Signs GitHub App JWTs (0600) |
+| RSA private key | `~/.secrets/myanyagent.private-key.pem` (any path — config points at it) | Signs GitHub App JWTs (0600) |
 | Credential helper | `~/.local/share/myanyagent/bin/myanyagent-credential-helper.cjs` | Mints installation tokens on demand |
 | Bootstrap script | `~/.local/share/myanyagent/bin/myanyagent-bootstrap.sh` | Writes local git config + smoke test |
 | Status script | `~/.local/share/myanyagent/bin/myanyagent-status.sh` | Inspects machine config, key, git config, identity drift |
@@ -79,7 +79,7 @@ Rules:
 1. `MYANYAGENT_PRIVATE_KEY` env var (absolute path)
 2. `git config --local myanyagent.privateKey`
 3. `~/.config/myanyagent/config.toml` → `private_key` field
-4. Fallback: `~/.secrets/myanyagent.2026-08-04.private-key.pem`
+4. Fallback: `~/.secrets/myanyagent.private-key.pem`
 
 ## Operational Commands
 

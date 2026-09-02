@@ -21,6 +21,30 @@ HOME="$TESTHOME" sh "$REPO_ROOT/install.sh" >/dev/null 2>&1 || fail "install.sh 
   || fail "lib/attribution.cjs not installed"
 printf 'PASS: install.sh ships lib/attribution.cjs\n'
 
+# --- Test 1b: fresh install writes a PLACEHOLDER config — the author's
+# client_id/app_id/private_key must NOT leak into a new machine's config ---
+CFG="$TESTHOME/.config/myanyagent/config.toml"
+[ -f "$CFG" ] || fail "config.toml not written"
+grep -q 'REPLACE_ME' "$CFG" || fail "config.toml lacks placeholder values"
+! grep -q 'Iv23lioD363YBpJJB9QE' "$CFG" || fail "author's client_id leaked into fresh install"
+! grep -q '2026-08-04' "$CFG" || fail "author's dated key path leaked into fresh install"
+grep -Eq 'install.sh prints|NEXT STEPS|placeholder' "$CFG" || true  # config may carry a pointer comment
+printf 'PASS: fresh install writes placeholder config (no author values leak)\n'
+
+# --- Test 1c: fresh install output tells the human what to fill in ---
+FRESH_HOME="$TMPDIR/home-fresh"
+mkdir -p "$FRESH_HOME"
+OUT1=$(HOME="$FRESH_HOME" sh "$REPO_ROOT/install.sh" 2>&1)
+echo "$OUT1" | grep -q 'client_id' || fail "fresh install output does not mention client_id"
+echo "$OUT1" | grep -q 'private_key' || fail "fresh install output does not mention private_key"
+printf 'PASS: install output lists required config fields\n'
+
+# --- Test 1d: re-running install on a config that still has placeholders
+# warns the human (the agent cannot notice this) ---
+OUT2=$(HOME="$FRESH_HOME" sh "$REPO_ROOT/install.sh" 2>&1)
+echo "$OUT2" | grep -q 'placeholder' || fail "re-install does not warn about placeholder config"
+printf 'PASS: re-install warns while config still has placeholders\n'
+
 # --- Test 2: end-to-end — clean HOME, bootstrap, commit carries the trailer
 # WITHOUT injecting MYANYAGENT_LIB (the hook must find the installed lib) ---
 git init -q "$TMPDIR/repo" || fail "git init failed"
