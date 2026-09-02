@@ -1,5 +1,7 @@
 # MyAnyAgent — Reusable GitHub App Git Auth Tool
 
+[简体中文](README.zh-CN.md) | English
+
 A machine-level tool that authenticates `git push` using a GitHub App
 installation token, reusable across any repository authorized under the
 same App. No per-repo scripts; each repo just commits a small
