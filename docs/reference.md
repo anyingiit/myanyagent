@@ -41,6 +41,45 @@ Offline/air-gapped machines can skip bootstrap's credential smoke test
 4. Run `myanyagent-bootstrap` in the repo.
 5. `git push` to verify.
 
+## Credential Provisioning (human-only)
+
+These steps require a browser and your GitHub account; the agent cannot
+do them. Official tutorials:
+
+- Register the App: <https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app>
+  — the only permission required is **Contents: Read & write**; webhooks
+  can be disabled.
+- Install it on your account: <https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app>
+- Generate the private key: <https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps>
+- Classic PAT (upstream contributions only): <https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens>
+
+### Field-by-field: required configuration
+
+**`~/.config/myanyagent/config.toml`** (machine level, written by
+`install.sh` from `config/config.template.toml`):
+
+| Field | Meaning | Where to find it |
+|---|---|---|
+| `client_id` | App's Client ID (public; JWT issuer `iss`) | App settings page, "Client ID" |
+| `app_id` | App's ID (reference only) | App settings page, "App ID" |
+| `private_key` | Absolute path to the `.pem` | Wherever you saved the generated key |
+
+**`<repo>/.myanyagent.toml`** (per repo):
+
+| Field | Meaning | Where to find it |
+|---|---|---|
+| `repository` | `owner/repo` this binding is for | Your repo |
+| `installation_id` | The App installation's numeric ID | URL of the installation page under github.com/settings/installations — its numeric path segment |
+| `[bot] name` | Bot identity for commit authorship | The App page shows the app-slug bot name, e.g. `MyAnyAgent[bot]` |
+| `[bot] email` | Bot noreply address | `<bot-user-id>+<bot-slug>@users.noreply.github.com` — the bot user ID is on the App's "Advanced" page after first install |
+
+**Secret files** (never committed, mode 0600):
+
+| File | Purpose |
+|---|---|
+| `~/.secrets/myanyagent.<date>.private-key.pem` | GitHub App private key (signs JWTs) |
+| `~/.secrets/myanyagent-upstream.pat` | Classic PAT `public_repo` for the human (upstream writes) |
+
 ## How the Credential Flow Works
 
 1. Repo has `.myanyagent.toml` with `repository`, `installation_id`, bot

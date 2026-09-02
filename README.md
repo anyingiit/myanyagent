@@ -19,6 +19,46 @@ is missing, your agent will tell you exactly what to install.
 Prerequisites: `git`, Node.js 18+. The agent handles the rest — see
 [docs/reference.md](docs/reference.md) only if you care about internals.
 
+## Prepare the Credentials (human-only, required)
+
+Before `sh install.sh` can actually authenticate pushes, **you** must
+provision one secret and fill in config values. The agent cannot do
+these for you — they require your GitHub account in a browser.
+
+### 1. GitHub App private key (required — authenticates `git push`)
+
+1. **Register a GitHub App** under your account:
+   [official tutorial](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app).
+   While registering, set **Contents → Read & write** (the only
+   permission needed); webhooks can stay off.
+2. **Install it on your own account**:
+   [installing your own GitHub App](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app),
+   selecting the repositories it should cover.
+3. **Generate a private key** on the App's settings page:
+   [managing private keys](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps).
+   Save the `.pem` download as
+   `~/.secrets/myanyagent.<date>.private-key.pem` (mode `0600`). Never
+   commit it anywhere.
+
+### 2. Required configuration
+
+| File | Required values | Where they come from |
+|---|---|---|
+| `~/.config/myanyagent/config.toml` (machine, written by `install.sh`) | `client_id`, `app_id`, `private_key` | The App's settings page shows **App ID** and **Client ID**; `private_key` is the `.pem` path above |
+| `<repo>/.myanyagent.toml` (per repo) | `repository`, `installation_id`, `[bot]` name/email | `installation_id` is the number in the URL of the installation's configure page (`github.com/settings/installations/<id>`); `[bot]` name is the app-slug form shown on the App page (e.g. `MyAnyAgent[bot]`), email is `<bot-user-id>+<bot-name>@users.noreply.github.com` |
+
+After the files exist, run `myanyagent-bootstrap` in the repo (or let
+the agent do it) and the tool is live. Full field-by-field detail:
+[docs/reference.md](docs/reference.md).
+
+### 3. Upstream PAT (optional — third-party public-repo contributions)
+
+Commenting/PRs on repos that don't have your App installed need a
+classic PAT: [creating a personal access token (classic)](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+with scope **`public_repo`**, saved to
+`~/.secrets/myanyagent-upstream.pat` (mode `0600`). Skip this if you
+only push to your own repos.
+
 ## Using a Repo with MyAnyAgent
 
 If a repo contains a `.myanyagent.toml` file, it's MyAnyAgent-enabled.

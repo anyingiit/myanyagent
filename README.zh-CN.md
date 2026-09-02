@@ -19,6 +19,46 @@ sh install.sh
 前置条件：`git`、Node.js 18+。其余交给 agent——只有当你关心内部
 原理时才需要读 [docs/reference.md](docs/reference.md)。
 
+## 准备鉴权凭据（只能由人完成，必需）
+
+在 `sh install.sh` 真正能认证推送之前，**你**必须先准备一个密钥并
+填好配置。这些步骤 agent 替代不了——需要你的 GitHub 账号在浏览器
+里操作。
+
+### 1. GitHub App 私钥（必需——用于 `git push` 认证）
+
+1. 在你的账号下**注册一个 GitHub App**：
+   [官方教程](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app)。
+   注册时把 **Contents → Read & write** 设为唯一所需权限；webhook
+   可以保持关闭。
+2. **把它安装到你自己的账号**：
+   [安装自己的 GitHub App](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app)，
+   选择它覆盖的仓库。
+3. 在 App 设置页**生成私钥**：
+   [私钥管理](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps)。
+   把下载的 `.pem` 保存为
+   `~/.secrets/myanyagent.<日期>.private-key.pem`（权限 `0600`），
+   绝不提交进任何仓库。
+
+### 2. 必须给予的配置
+
+| 文件 | 必填值 | 值从哪里来 |
+|---|---|---|
+| `~/.config/myanyagent/config.toml`（机器级，由 `install.sh` 写入） | `client_id`、`app_id`、`private_key` | App 设置页显示 **App ID** 和 **Client ID**；`private_key` 即上面 `.pem` 的路径 |
+| `<repo>/.myanyagent.toml`（每仓库） | `repository`、`installation_id`、`[bot]` 名/邮箱 | `installation_id` 是安装配置页 URL 里的数字（`github.com/settings/installations/<id>`）；`[bot]` 名是 App 页显示的 app-slug 形式（如 `MyAnyAgent[bot]`），邮箱格式为 `<bot用户id>+<bot名>@users.noreply.github.com` |
+
+文件就位后，在仓库里运行 `myanyagent-bootstrap`（或交给 agent），
+工具即生效。逐字段完整说明见
+[docs/reference.md](docs/reference.md)。
+
+### 3. 上游 PAT（可选——第三方公共仓库贡献）
+
+对未安装你的 App 的仓库评论/开 PR，需要一个 classic PAT：
+[创建 classic personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)，
+scope 只选 **`public_repo`**，保存到
+`~/.secrets/myanyagent-upstream.pat`（权限 `0600`）。只往自己仓库
+推送的话可跳过。
+
 ## 在启用 MyAnyAgent 的仓库中工作
 
 仓库里存在 `.myanyagent.toml` 文件即表示已启用。像平常一样和
