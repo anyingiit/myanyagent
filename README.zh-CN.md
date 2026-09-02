@@ -1,122 +1,82 @@
-# MyAnyAgent — 可复用的 GitHub App Git 认证工具
+# MyAnyAgent — 使用指南
 
-[English](README.md) | 简体中文
+MyAnyAgent 是给 **AI agent** 用的工具，由**人**来操作。你不需要自己运行
+它的命令——你告诉 agent 想要什么，agent 会驱动这个工具完成。本 README
+教你该说什么。
 
-一个机器级工具：用 GitHub App installation token 认证 `git push`，在
-同一 App 授权的所有仓库间复用。无需每仓库单独脚本——每个仓库只需
-提交一个声明参数的小文件 `.myanyagent.toml`。
-
-## 安装（每台机器一次）
+## 一次性安装
 
 ```sh
-# 在本仓库的克隆中执行：
 sh install.sh
 ```
 
-工具会安装到 `~/.local/share/myanyagent/`，在 `~/.local/bin/` 创建
-symlink，并写入 `~/.config/myanyagent/config.toml`。
+这是你唯一需要亲手执行的步骤。它会安装工具并配置好认证
+（GitHub App token，无需密码）。如果缺少前置条件，agent 会明确
+告诉你装什么。
 
-前置条件：`git`、Node.js 18+、以及位于
-`~/.secrets/myanyagent.<日期>.private-key.pem` 的 GitHub App 私钥
-（需另行准备，切勿提交进仓库）。
+前置条件：`git`、Node.js 18+。其余交给 agent——只有当你关心内部
+原理时才需要读 [docs/reference.md](docs/reference.md)。
 
-离线/隔离网机器可用 `MYANYAGENT_SKIP_SMOKE_TEST=1` 跳过 bootstrap 中
-需要访问 GitHub 的凭据冒烟测试。
+## 在启用 MyAnyAgent 的仓库中工作
 
-## 每仓库配置
+仓库里存在 `.myanyagent.toml` 文件即表示已启用。像平常一样和
+agent 协作即可：
 
-1. 在 GitHub App 设置中把该仓库加入 selected repositories。
-2. 在仓库根目录创建 `.myanyagent.toml`：
+- **"把这几个提交推上去"** → agent 直接推送，认证自动完成
+- **"向上游开一个 PR"** → agent 运行 PR 命令；若任何提交缺少
+  AI 披露（`Co-authored-by:`）会被拒绝——trailer 会自动附加，
+  所以你几乎不会遇到这个报错
+- **"在那个仓库的 PR #12 下评论"** → agent 通过白名单 upstream
+  适配器完成
 
-   ```toml
-   repository = "owner/repo"
-   installation_id = "123456"
-   [bot]
-   name = "MyAnyAgent[bot]"
-   email = "123456789+myanyagent[bot]@users.noreply.github.com"
-   ```
+你不需要知道哪条命令干什么。agent 只会在两种情况下找到你：
 
-3. 提交该文件。
-4. 在仓库内运行 `myanyagent-bootstrap`。
-5. `git push` 验证。
+1. **新仓库首次使用** —— agent 可能请你在那里运行一次
+   `myanyagent-bootstrap`（一条命令，一次而已）。
+2. **出问题了** —— agent 会看到 `-> run: ...` 提示并自己修好，
+   顺着工具的自描述消息走。
 
-## Agent 自发现（AI 代理如何零知识学会使用本工具）
+## 你可以让 agent 做什么
 
-本工具专为 agent 使用而设计，无需预先记忆任何命令：
+| 你说 | 发生什么 |
+|---|---|
+| "推送我的分支" | GitHub App token 认证；提交自动携带 AI 披露 |
+| "Fork 这个仓库并开 PR" | 通过 dry-run 优先的适配器 fork + 开 PR（每次写操作先展示计划） |
+| "在上游 PR 评论 / 回复 / resolve 线程" | 以你的身份做白名单内的 API 写操作，绝不静默——确认前一律 dry-run |
+| "这里认证状态如何？" | `myanyagent-status` 报告：全绿（`OK`）或 `-> run:` 修复提示 |
+| "读我的 GitHub 通知 / PR review" | 只读命令，零风险 |
 
-- 仓库里存在 `.myanyagent.toml` 即声明使用 MyAnyAgent。
-- `git push` 认证失败时，credential helper 会在 stderr 输出修复
-  提示：`-> run: myanyagent-status`。
-- `myanyagent-status` 报告状态，需要行动时输出 `-> run: <命令>`
-  （全部正常时输出 `OK`）。
-- agent 顺着 `-> run:` 行自愈。
+## 为什么可以放心让 agent 驱动
 
-### OpenCode skill
+- 所有上游写操作**先 dry-run**——agent 先看到将要发送什么，
+  然后才会真的发生。
+- 只有**固定白名单内的端点**可调用，其余一律拒绝。
+- Token **短时效或文件锁（0600）**，绝不进 argv、URL 或日志。
+- **AI 披露是强制的**：提交自动携带 `Co-authored-by:`，包含
+  未披露 AI 提交的 PR 会被拒绝创建。
+- 任何失败工具都会打印 `-> run:` 提示——agent 自愈，不会乱撞。
 
-仓库内附带一个 [OpenCode skill](https://opencode.ai)：
-`skills/myanyagent/SKILL.md`。安装或 symlink 到用户 skills 目录即可
-让 OpenCode agent 自动加载：
+## OpenCode 用户
+
+如果你使用 [OpenCode](https://opencode.ai)，安装随附的 skill，
+agent 从一开始就认识 MyAnyAgent：
 
 ```sh
 mkdir -p ~/.config/opencode/skills
 ln -s "$(pwd)/skills/myanyagent" ~/.config/opencode/skills/myanyagent
 ```
 
-该 skill 告诉 agent 何时使用 MyAnyAgent、GitHub App
-credential-helper 流程如何运作、应运行哪些命令
-（`myanyagent-status`、`myanyagent-bootstrap`、`myanyagent-upstream`）
-——与上述运行时 `-> run:` 提示互为补充。
+## 延伸阅读
 
-## 命令
-
-| 命令 | 用途 |
-|------|------|
-| `myanyagent-bootstrap` | 依据 `.myanyagent.toml` + 机器配置写入本地 `.git/config` |
-| `myanyagent-status` | 只读状态报告，带 `-> run:` 提示 |
-| `myanyagent-helper` | Git credential helper（由 git 调用，不直接使用） |
-| `myanyagent-upstream` | 面向第三方公共仓库贡献的 GitHub API 白名单适配器 |
-
-## 向第三方公共仓库贡献
-
-App installation token 只能操作 App 安装覆盖的仓库。对于你无控制权的
-上游仓库，使用一个刻意保持小型的独立适配器：
-
-- **Git 传输**（push 到你自己的 fork）仍走 App credential
-  helper——不变。
-- **上游 API 写操作**（创建 fork、发起 PR、评论、回复 review 线程、
-  resolve 线程）通过 `myanyagent-upstream`，它持有人类账号的 classic
-  PAT（`public_repo`），位于 `~/.secrets/myanyagent-upstream.pat`
-  （权限 0600）。所有写操作默认 dry-run，除非传入 `--yes`；仅固定
-  白名单内的端点可调用。
-- **提交署名**与认证正交。向上游供 PR 的 worktree 在
-  `.myanyagent.toml` 中声明人类身份：
-
-  ```toml
-  [identity]
-  name = "your-username"
-  email = "<id>+your-username@users.noreply.github.com"
-  ```
-
-  `myanyagent-bootstrap` 随后把人类身份（而非 bot）写入 git config，
-  并把 `.myanyagent.toml` 加入 `.git/info/exclude`，使其永不进入
-  PR diff。`myanyagent-upstream identity` 会打印 PAT 账号精确的
-  git config 行（及 ID 型 noreply 地址）。
-- **AI 披露是强制性的，而非建议性的。** 每个提交都携带指明 agent
-  的 `Co-authored-by:` trailer。Bootstrap 安装
-  `prepare-commit-msg` hook 自动附加解析出的 trailer
-  （优先级：`MYANYAGENT_ATTRIBUTION` 环境变量 > `[identity].co_author`
-  > `[bot]` 块；`--no-verify` 并不会跳过 `prepare-commit-msg`）；
-  `myanyagent-upstream pr create` 在 `<base>..<head-branch>`（即
-  PR 将包含的内容）中任一提交缺少该 trailer 时拒绝开 PR——gate
-  在本地解析 base ref，若缺失请先 `git fetch origin <base>`
-  （`--skip-attribution-check` 可绕过）。`myanyagent-status` 报告
-  hook 状态、解析出的 trailer，以及自 `origin/HEAD` 以来缺失它的
-  提交。
-
-完整的能力调研与失败记录见
-`docs/contributing-to-third-party-repos.md`。
+- [docs/reference.md](docs/reference.md) — 完整内部原理：配置
+  文件、凭据流、白名单、命令
+- [docs/contributing-to-third-party-repos.md](docs/contributing-to-third-party-repos.md)
+  — 上游模型背后的调研记录
 
 ## 测试
+
+测试套件也与 agent 相关——对 agent 说"运行 myanyagent 测试"它
+就知道怎么做：
 
 ```sh
 node --test test/helper.test.cjs

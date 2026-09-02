@@ -261,6 +261,96 @@ test("resolve requires --yes and then sends the resolveReviewThread mutation", a
   assert.match(r.stdout, /resolved/i);
 });
 
+// --- Issue create / close (gap from the allowlist-bypass incident) ---
+
+test("issue close without --yes is a dry-run and sends nothing", async () => {
+  const before = hits.length;
+  const r = await run(["issue", "close", "--repo", "o/r", "--number", "7"]);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /DRY-RUN/);
+  assert.match(r.stdout, /PATCH \/repos\/o\/r\/issues\/7/);
+  assert.equal(hits.length, before);
+});
+
+test("issue close --yes PATCHes state closed to the issue endpoint", async () => {
+  route = () => ({
+    status: 200,
+    json: { number: 7, state: "closed", html_url: "https://example/issue/7" },
+  });
+  const r = await run(["issue", "close", "--repo", "o/r", "--number", "7", "--yes"]);
+  assert.equal(r.status, 0, r.stderr);
+  const hit = hits[hits.length - 1];
+  assert.equal(hit.method, "PATCH");
+  assert.equal(hit.url, "/repos/o/r/issues/7");
+  assert.deepEqual(JSON.parse(hit.body), { state: "closed" });
+  assert.match(r.stdout, /closed/);
+  assert.match(r.stdout, /https:\/\/example\/issue\/7/);
+});
+
+test("issue close --state-reason not-planned is normalized to not_planned and sent", async () => {
+  route = () => ({
+    status: 200,
+    json: { number: 7, state: "closed", state_reason: "not_planned", html_url: "u" },
+  });
+  const r = await run([
+    "issue", "close", "--repo", "o/r", "--number", "7",
+    "--state-reason", "not-planned", "--yes",
+  ]);
+  assert.equal(r.status, 0, r.stderr);
+  const hit = hits[hits.length - 1];
+  assert.deepEqual(JSON.parse(hit.body), { state: "closed", state_reason: "not_planned" });
+});
+
+test("issue close rejects an invalid --state-reason before any HTTP", async () => {
+  const before = hits.length;
+  const r = await run([
+    "issue", "close", "--repo", "o/r", "--number", "7",
+    "--state-reason", "bogus",
+  ]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /state-reason/i);
+  assert.match(r.stderr, /completed|not[-_]planned/i);
+  assert.equal(hits.length, before);
+});
+
+test("issue close rejects unknown subcommands", async () => {
+  const r = await run(["issue", "bogus"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /unknown subcommand/i);
+});
+
+test("issue create without --yes is a dry-run and sends nothing", async () => {
+  const before = hits.length;
+  const f = path.join(tmpHome(), "body.md");
+  fs.writeFileSync(f, "issue body\n");
+  const r = await run([
+    "issue", "create", "--repo", "o/r", "--title", "T", "--body-file", f,
+  ]);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /DRY-RUN/);
+  assert.match(r.stdout, /POST \/repos\/o\/r\/issues/);
+  assert.equal(hits.length, before);
+});
+
+test("issue create --yes POSTs title and body to the issues endpoint", async () => {
+  const f = path.join(tmpHome(), "body.md");
+  fs.writeFileSync(f, "something is broken\n");
+  route = () => ({
+    status: 201,
+    json: { number: 44, html_url: "https://example/issue/44" },
+  });
+  const r = await run([
+    "issue", "create", "--repo", "o/r", "--title", "Bug report",
+    "--body-file", f, "--yes",
+  ]);
+  assert.equal(r.status, 0, r.stderr);
+  const hit = hits[hits.length - 1];
+  assert.equal(hit.method, "POST");
+  assert.equal(hit.url, "/repos/o/r/issues");
+  assert.deepEqual(JSON.parse(hit.body), { title: "Bug report", body: "something is broken\n" });
+  assert.match(r.stdout, /#44/);
+});
+
 // --- Error handling ---
 
 test("rate-limited 403 produces guidance and a nonzero exit", async () => {

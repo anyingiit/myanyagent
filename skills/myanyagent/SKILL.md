@@ -95,12 +95,12 @@ The App token is installation-scoped: it **cannot** fork, open PRs, or comment o
 | Layer | Mechanism | Acts as |
 |---|---|---|
 | Git push to your own fork | credential helper (unchanged) | App |
-| Upstream API: fork / PR / comment / review reply / resolve thread | `myanyagent-upstream` | the human |
+| Upstream API: fork / PR / issue create+close / comment / review reply / resolve thread | `myanyagent-upstream` | the human |
 | Commit authorship | `[identity]` section in `.myanyagent.toml` | the human |
 
 Rules:
 
-- All upstream writes are dry-run unless `--yes`; reads (`status`, `identity`, `reviews`, `threads`, `notifications`) run freely.
+- All upstream writes are dry-run unless `--yes`; reads (`status`, `identity`, `reviews`, `threads`, `notifications`) run freely. The allowlist covers `fork`, `pr create`, `issue create`, `issue close`, `comment`, `reply`, `resolve` — if a needed GitHub write is NOT one of these, STOP and ask the human; do NOT read the PAT file or call the API directly (that bypass is exactly what the allowlist exists to prevent).
 - `myanyagent-upstream identity` prints the exact `git config` lines (ID-based noreply) for the PAT account.
 - **Contribution worktree = `[identity]` declared.** Bootstrap then writes the human identity and adds `.myanyagent.toml` to `.git/info/exclude` so it never enters a PR diff. Never `git config user.*` by hand — edit the toml and re-run bootstrap.
 - GitHub Contributors pages and profile graphs credit the **commit author email** — push credentials are irrelevant to attribution.

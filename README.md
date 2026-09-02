@@ -1,127 +1,87 @@
-# MyAnyAgent — Reusable GitHub App Git Auth Tool
+# MyAnyAgent — How to Use It
 
-[简体中文](README.zh-CN.md) | English
+MyAnyAgent is a tool for **AI agents**, operated by **humans**. You don't
+run its commands yourself — you tell your agent what you want, and the
+agent drives the tool. This README teaches you what to say.
 
-A machine-level tool that authenticates `git push` using a GitHub App
-installation token, reusable across any repository authorized under the
-same App. No per-repo scripts; each repo just commits a small
-`.myanyagent.toml` declaring its parameters.
-
-## Install (per machine, once)
+## The One-Time Setup
 
 ```sh
-# From a clone of this repo:
 sh install.sh
 ```
 
-This installs the tool to `~/.local/share/myanyagent/`, creates symlinks
-in `~/.local/bin/`, and writes `~/.config/myanyagent/config.toml`.
+That's the only step you ever run by hand. It installs the tool and
+sets up authentication (GitHub App token, no passwords). If anything
+is missing, your agent will tell you exactly what to install.
 
-Prerequisites: `git`, `node` 18+, and the GitHub App private key at
-`~/.secrets/myanyagent.<date>.private-key.pem` (provision separately,
-never commit).
+Prerequisites: `git`, Node.js 18+. The agent handles the rest — see
+[docs/reference.md](docs/reference.md) only if you care about internals.
 
-## Per-Repo Setup
+## Using a Repo with MyAnyAgent
 
-1. Add the repository to the GitHub App's selected repositories in App
-   settings.
-2. Create `.myanyagent.toml` at the repo root:
+If a repo contains a `.myanyagent.toml` file, it's MyAnyAgent-enabled.
+Just work with the agent as usual:
 
-   ```toml
-   repository = "owner/repo"
-   installation_id = "123456"
-   [bot]
-   name = "MyAnyAgent[bot]"
-   email = "123456789+myanyagent[bot]@users.noreply.github.com"
-   ```
+- **"push these commits"** → the agent pushes; auth just works
+- **"open a PR upstream"** → the agent runs the PR command, which
+  refuses if any commit lacks AI disclosure (`Co-authored-by:`) —
+  every commit gets it automatically, so you rarely see this
+- **"comment on PR #12 of that repo"** → the agent handles it through
+  the allowlisted upstream adapter
 
-3. Commit it.
-4. Run `myanyagent-bootstrap` in the repo.
-5. `git push` to verify.
+You never need to know which command does what. Two things the agent
+will surface to you:
 
-Offline/air-gapped machines can skip bootstrap's credential smoke test (which
-needs GitHub access) with `MYANYAGENT_SKIP_SMOKE_TEST=1`.
+1. **First-time use in a new repo** — the agent may ask you to run
+   `myanyagent-bootstrap` there (one command, one time).
+2. **Something went wrong** — the agent sees a `-> run: ...` hint and
+   fixes it itself, following the tool's self-describing messages.
 
-## Agent Discovery (how AI agents learn the tool)
+## What You Can Ask For
 
-The tool is designed for agent use with zero prior knowledge:
+| You say | What happens |
+|---|---|
+| "Push my branch" | Auth via GitHub App token; commits carry AI disclosure automatically |
+| "Fork this repo and open a PR" | Fork + PR through the dry-run-first adapter (every write shows a plan first) |
+| "Comment / reply / resolve thread on upstream PR" | Allowlisted API writes as your identity, never silently — dry-run until confirmed |
+| "What's the auth state here?" | `myanyagent-status` report: green (`OK`) or a `-> run:` fix hint |
+| "Read my GitHub notifications / PR reviews" | Read-only commands, no risk |
 
-- If a repo has `.myanyagent.toml`, it declares MyAnyAgent usage.
-- On `git push` auth failure, the credential helper prints a remediation
-  hint on stderr: `-> run: myanyagent-status`.
-- `myanyagent-status` reports state and prints `-> run: <command>` when
-  action is needed (or `OK` when all green).
-- The agent follows the `-> run:` lines to self-heal.
+## Why It's Safe to Let the Agent Drive
 
-No command memorization required; the tool self-describes the next step.
+- Every upstream write is a **dry-run first** — the agent sees exactly
+  what would be sent before anything real happens.
+- Only a **fixed allowlist of endpoints** is callable; anything else
+  is refused.
+- Tokens are **short-lived or file-locked (0600)**, never in argv,
+  URLs, or logs.
+- **AI disclosure is enforced**: commits carry `Co-authored-by:`
+  automatically, and PRs containing undisclosed AI commits are
+  blocked from creation.
+- On any failure the tool prints a `-> run:` hint — the agent
+  self-heals instead of flailing.
 
-### OpenCode skill
+## OpenCode Users
 
-An [OpenCode skill](https://opencode.ai) for this tool ships in the repo at
-`skills/myanyagent/SKILL.md`. To let an OpenCode agent load it automatically,
-install or symlink it into the user skills directory:
+If you use [OpenCode](https://opencode.ai), install the bundled skill so
+the agent knows MyAnyAgent from the start:
 
 ```sh
 mkdir -p ~/.config/opencode/skills
 ln -s "$(pwd)/skills/myanyagent" ~/.config/opencode/skills/myanyagent
 ```
 
-The skill tells the agent when to use MyAnyAgent, how the GitHub App
-credential-helper flow works, and which commands to run (`myanyagent-status`,
-`myanyagent-bootstrap`, `myanyagent-upstream`) — complementing the runtime
-`-> run:` hints above.
+## Further Reading
 
-## Commands
-
-| Command | Purpose |
-|---------|---------|
-| `myanyagent-bootstrap` | Configure local `.git/config` from `.myanyagent.toml` + machine config |
-| `myanyagent-status` | Read-only state report with `-> run:` hints |
-| `myanyagent-helper` | Git credential helper (called by git, not directly) |
-| `myanyagent-upstream` | Allowlisted GitHub API adapter for third-party public-repo contributions |
-
-## Contributing to third-party public repos
-
-The App installation token can only act on repositories covered by the App's
-installations. For upstream repos you do not control, a separate, deliberately
-small adapter is used:
-
-- **Git transport** (push to your own forks) stays on the App credential
-  helper — unchanged.
-- **Upstream API writes** (create fork, open PR, comment, reply to review
-  threads, resolve threads) go through `myanyagent-upstream`, which holds a
-  classic PAT (`public_repo`) for the human account at
-  `~/.secrets/myanyagent-upstream.pat` (mode 0600). Every write is a dry-run
-  unless `--yes` is passed; only a fixed allowlist of endpoints is callable.
-- **Commit attribution** is orthogonal to authentication. A worktree that
-  feeds PRs upstream declares the human's identity in `.myanyagent.toml`:
-
-  ```toml
-  [identity]
-  name = "your-username"
-  email = "<id>+your-username@users.noreply.github.com"
-  ```
-
-  `myanyagent-bootstrap` then writes the human identity (not the bot's) into
-  git config, and adds `.myanyagent.toml` to `.git/info/exclude` so it never
-  enters a PR diff. `myanyagent-upstream identity` prints the exact git config
-  lines (and the ID-based noreply address) for the PAT's account.
-- **AI disclosure is enforced, not advisory.** Every commit carries a
-  `Co-authored-by:` trailer naming the agent. Bootstrap installs a
-  `prepare-commit-msg` hook that appends the resolved trailer automatically
-  (env `MYANYAGENT_ATTRIBUTION` > `[identity].co_author` > `[bot]` block;
-  `--no-verify` does NOT skip `prepare-commit-msg`), and
-  `myanyagent-upstream pr create` refuses to open a PR when any commit in
-  `<base>..<head-branch>` (what the PR will contain) lacks the trailer — the
-  gate resolves the base ref locally, so `git fetch origin <base>` first if
-  it's missing (`--skip-attribution-check` bypasses). `myanyagent-status`
-  reports hook state, the resolved trailer, and commits since `origin/HEAD`
-  missing it.
-
-See `docs/contributing-to-third-party-repos.md` for the full capability
-research and failure record behind this design.
+- [docs/reference.md](docs/reference.md) — full internals: config
+  files, credential flow, allowlist, commands
+- [docs/contributing-to-third-party-repos.md](docs/contributing-to-third-party-repos.md)
+  — the research behind the upstream model
 
 ## Tests
+
+The suite is agent-relevant too — tell the agent "run the myanyagent
+tests" and it knows:
 
 ```sh
 node --test test/helper.test.cjs

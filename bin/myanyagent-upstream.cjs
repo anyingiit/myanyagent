@@ -31,6 +31,8 @@ const ALLOWLIST = {
   notifications:   { method: "GET",  path: "/notifications?participating=true&per_page=50" },
   forks:           { method: "POST", path: "/repos/{repo}/forks" },
   pulls:           { method: "POST", path: "/repos/{repo}/pulls" },
+  issues:          { method: "POST", path: "/repos/{repo}/issues" },
+  issue:           { method: "PATCH", path: "/repos/{repo}/issues/{n}" },
   issueComments:   { method: "POST", path: "/repos/{repo}/issues/{n}/comments" },
   reviewReplies:   { method: "POST", path: "/repos/{repo}/pulls/{pr}/comments/{id}/replies" },
   graphql:         { method: "POST", path: "/graphql" },
@@ -235,7 +237,7 @@ function explainHttpError(r) {
 
 // --- CLI layer ---
 
-const WRITE_COMMANDS = new Set(["fork", "pr", "comment", "reply", "resolve"]);
+const WRITE_COMMANDS = new Set(["fork", "pr", "comment", "reply", "resolve", "issue"]);
 
 function parseFlags(args) {
   // Only --yes is boolean; every other --key consumes the next token as its
@@ -299,9 +301,10 @@ async function getUser() {
 
 async function main(argv) {
   const cmd = argv[0];
-  // "pr create" is the only two-word command; everything else parses flags from argv[1]
-  const sub = cmd === "pr" ? argv[1] : undefined;
-  const flags = parseFlags(cmd === "pr" ? argv.slice(2) : argv.slice(1));
+  // Two-word commands: "pr create", "issue create", "issue close". Everything
+  // else parses flags from argv[1].
+  const sub = cmd === "pr" || cmd === "issue" ? argv[1] : undefined;
+  const flags = parseFlags(cmd === "pr" || cmd === "issue" ? argv.slice(2) : argv.slice(1));
 
   if (!cmd || cmd === "help" || cmd === "--help") {
     console.log(`usage: myanyagent-upstream <command> [flags]
@@ -320,6 +323,8 @@ write (DRY-RUN unless --yes):
                 — what the PR will contain — must carry the trailer; the base
                 ref must resolve locally, git fetch origin <base> first if not;
                 --skip-attribution-check bypasses)
+  issue create  --repo o/r --title T --body-file F
+  issue close   --repo o/r --number n [--state-reason completed|not-planned]
   comment       --repo o/r --number n --body-file F
   reply         --repo o/r --pr n --comment-id id --body-file F
   resolve       --thread-id PRRT_...
@@ -485,6 +490,52 @@ body-file "-" reads stdin. token: $MYANYAGENT_UPSTREAM_TOKEN or
         return 1;
       }
       console.log(`PR #${r.data.number} created: ${r.data.html_url}`);
+      return 0;
+    }
+
+    case "issue": {
+      if (sub !== "create" && sub !== "close") {
+        fail(`unknown subcommand: issue ${sub || ""} (expected "issue create" or "issue close")`);
+        return 1;
+      }
+      if (sub === "create") {
+        if (!need(flags, "repo", "title", "body-file")) return 1;
+        const body = { title: flags.title, body: readBodyFile(flags["body-file"]) };
+        if (!flags.yes) {
+          dryRun("issues", { repo: flags.repo }, body);
+          return 0;
+        }
+        const r = await request("issues", { params: { repo: flags.repo }, body });
+        if (r.status !== 201) {
+          explainHttpError(r);
+          return 1;
+        }
+        console.log(`issue #${r.data.number} created: ${r.data.html_url}`);
+        return 0;
+      }
+      // issue close
+      if (!need(flags, "repo", "number")) return 1;
+      const REASONS = { completed: "completed", "not-planned": "not_planned", not_planned: "not_planned" };
+      let stateReason = null;
+      if (flags["state-reason"] !== undefined) {
+        const raw = String(flags["state-reason"]).toLowerCase();
+        stateReason = REASONS[raw] || null;
+        if (!stateReason) {
+          fail(`invalid --state-reason: ${flags["state-reason"]} (expected completed or not-planned)`);
+          return 1;
+        }
+      }
+      const body = { state: "closed", ...(stateReason ? { state_reason: stateReason } : {}) };
+      if (!flags.yes) {
+        dryRun("issue", { repo: flags.repo, n: flags.number }, body);
+        return 0;
+      }
+      const r = await request("issue", { params: { repo: flags.repo, n: flags.number }, body });
+      if (r.status !== 200) {
+        explainHttpError(r);
+        return 1;
+      }
+      console.log(`issue #${r.data.number} closed: ${r.data.html_url}`);
       return 0;
     }
 
