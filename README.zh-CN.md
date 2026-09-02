@@ -1,5 +1,7 @@
 # MyAnyAgent — 使用指南
 
+[English](README.md) | 简体中文
+
 MyAnyAgent 是给 **AI agent** 用的工具，由**人**来操作。你不需要自己运行
 它的命令——你告诉 agent 想要什么，agent 会驱动这个工具完成。本 README
 教你该说什么。
