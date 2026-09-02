@@ -2,153 +2,81 @@
 
 English | [简体中文](README.zh-CN.md)
 
-MyAnyAgent lets an **AI agent** push to GitHub for you — no passwords, no
-PATs in your repo. You do a one-time setup in your browser; after that you
-just tell the agent what you want ("push this", "open a PR upstream") and
-it handles authentication itself.
+MyAnyAgent lets your **AI agent** push to GitHub and manage PRs/issues
+for you — without you handling any passwords or tokens.
 
-**How it works in one line:** you register a GitHub App once, the agent
-exchanges its private key for short-lived tokens per push, and every
-commit is automatically signed with a `Co-authored-by:` AI-disclosure
-trailer.
+You don't install anything yourself. **Tell your agent:**
 
-## From Zero to Working (about 10 minutes)
+> "Install myanyagent on this machine. The repo is
+> https://github.com/anyingiit/myanyagent"
 
-### Step 0 — Prerequisites
+The agent runs the whole setup. It will come back to you **exactly
+once** with a short browser checklist (creating your GitHub App and its
+key — the only part that genuinely needs your GitHub account). After
+you hand back the three values it asks for, you're done forever.
 
-A Linux/macOS machine with `git` and Node.js 18+:
+## What you'll be asked to do (the one-time checklist)
 
-```sh
-git --version && node --version
-```
+When the agent asks, you'll do three browser steps (~5 minutes) and give
+it four values:
 
-### Step 1 — Create your GitHub App (browser, ~5 min)
+1. **Register a GitHub App** in your account settings
+   ([official tutorial](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app))
+   — during registration set **Contents: Read and write** (the only
+   permission needed) and leave webhooks off
+2. **Generate a private key** on the App's settings page
+   ([official tutorial](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps))
+   — download the `.pem` file
+3. **Install the App on your own account**
+   ([official tutorial](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app))
+   — select the repos you want the agent to push to
 
-1. Follow the
-   [official "Register a GitHub App" tutorial](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app).
-   While registering:
-   - **Permissions**: set only **Contents → Read and write** (everything
-     else can stay "No access")
-   - **Webhook**: deselect "Active" (not needed)
-   - **Where can this app be installed**: "Only on this account"
-2. After creating, on the same settings page click
-   **"Generate a private key"** and download the `.pem` file. (Tutorial:
-   [Managing private keys](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps).)
-3. Install the App on your own account:
-   [official tutorial](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app),
-   covering the repositories you want to push to.
+Then hand the agent: the **Client ID**, the **App ID**, the downloaded
+**.pem file**, and the **installation ID** (the number in the URL when
+you open the installation's configure page:
+`github.com/settings/installations/<ID>`).
 
-**Write down from the App settings page:** the **App ID**, the
-**Client ID**, and the installation's numeric ID (visible in the URL of
-`https://github.com/settings/installations/<ID>` when you open the
-installation's configure page).
+That's the entire human part. Everything else — installation, config,
+per-repo setup, error recovery — the agent handles by itself, guided by
+the tool's built-in `-> run:` hints.
 
-### Step 2 — Save the private key on this machine
+## After setup: what you can say
 
-```sh
-mkdir -p ~/.secrets
-mv ~/Downloads/*.pem ~/.secrets/myanyagent.private-key.pem
-chmod 600 ~/.secrets/myanyagent.private-key.pem
-```
-
-(Any path works — you'll point the config at it next. Never commit it.)
-
-### Step 3 — Install MyAnyAgent
-
-```sh
-git clone https://github.com/anyingiit/myanyagent.git
-cd myanyagent
-sh install.sh
-```
-
-Then edit the config it printed:
-
-```sh
-nano ~/.config/myanyagent/config.toml    # or any editor
-```
-
-Fill in your three values from Step 1:
-
-```toml
-client_id  = "Iv23xxxxxxx"     # <- Client ID from the App page
-app_id     = "12345678"        # <- App ID from the App page
-private_key = "~/.secrets/myanyagent.private-key.pem"
-```
-
-If `~/.local/bin` isn't on your PATH (install.sh will warn), add it:
-
-```sh
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.profile && . ~/.profile
-```
-
-### Step 4 — Enable a repository (per repo, once)
-
-In the repo you want to push from, create `.myanyagent.toml`:
-
-```toml
-repository = "you/your-repo"    # <- the repo this file lives in
-installation_id = "123456"     # <- the number from Step 1's installation URL
-[bot]
-name  = "your-app[bot]"        # <- the bot name shown on the App page
-email = "11111111+your-app[bot]@users.noreply.github.com"
-#       ^ 8-10 digit bot user ID (App settings → Advanced), + app slug
-```
-
-Commit it, then run:
-
-```sh
-myanyagent-bootstrap
-```
-
-That's it — `git push` now authenticates through your App. Verify:
-
-```sh
-myanyagent-status    # should end with: OK
-```
-
-### Optional — Upstream contributions (third-party public repos)
-
-To comment / open PRs on repos **without** your App installed, add a
-classic PAT: [official tutorial](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
-(scope: `public_repo` only):
-
-```sh
-install -m 600 /dev/stdin ~/.secrets/myanyagent-upstream.pat <<< "ghp_xxxx"
-```
-
-Skip this if you only push to your own repos.
-
-## Daily Use — Just Talk to the Agent
-
-From here on **you never run tool commands yourself**. Say:
-
-| You say | What happens |
+| You say | The agent does |
 |---|---|
-| "push my branch" | Agent pushes; auth is automatic; commits carry AI disclosure |
-| "fork this repo and open a PR" | Dry-run first, then executes on confirmation |
-| "comment on upstream PR #12" | Allowlisted API write, dry-run first |
-| "close upstream issue #5 as completed" | `issue close` with reason |
-| "check the auth state" | Agent runs `myanyagent-status`; follows `-> run:` hints to self-heal |
+| "push my branch" | Authenticates via your App; commits get AI disclosure automatically |
+| "fork X and open a PR upstream" | Shows you the plan first, then executes |
+| "comment on upstream PR #12" / "close issue #5" | Allowlisted API writes, plan shown first |
+| "why is pushing failing?" | Runs `myanyagent-status`, self-heals or tells you what it needs |
 
-The tool is self-describing: whenever something's wrong it prints
-`-> run: <command>`, so the agent (or you) always knows the next step.
+## Why this is safe
 
-## OpenCode Users
+- Every write operation on third-party repos is a **dry-run first** —
+  nothing happens silently
+- Only a **fixed allowlist** of GitHub endpoints is callable
+- Tokens are **short-lived**, secrets stay in `0600` files, never in
+  git history or logs
+- Every commit carries `Co-authored-by:` AI disclosure — enforced by a
+  git hook, not by trust
 
-Give the agent the bundled skill so it knows the tool from the start:
+## For OpenCode users
+
+If you use [OpenCode](https://opencode.ai), the agent gets a skill that
+teaches it all of the above:
 
 ```sh
 mkdir -p ~/.config/opencode/skills
 ln -s "$(pwd)/skills/myanyagent" ~/.config/opencode/skills/myanyagent
 ```
 
-## Deep Dive
+## For agents
 
-- [docs/reference.md](docs/reference.md) — every config field, the
-  token-minting flow, the endpoint allowlist, all commands
+- [docs/agent-setup.md](docs/agent-setup.md) — the complete
+  install/self-check/checklist procedure you follow
+- [docs/reference.md](docs/reference.md) — config fields, credential
+  flow, allowlist, all commands
 - [docs/contributing-to-third-party-repos.md](docs/contributing-to-third-party-repos.md)
   — research notes behind the upstream model
-- [README.zh-CN.md](README.zh-CN.md) — the same guide in Chinese
 
 ## Tests
 

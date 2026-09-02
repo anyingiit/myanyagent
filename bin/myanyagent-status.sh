@@ -49,9 +49,13 @@ fi
 
 # Machine config?
 client_id=""
+placeholder_config=false
 if [ -f "$config_file" ]; then
   client_id=$(sed -n 's/^[[:space:]]*client_id[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' "$config_file" | head -1)
   printf 'client_id: %s   (from %s)\n' "${client_id:-?}" "$config_file"
+  case "$client_id" in
+    REPLACE_ME) placeholder_config=true ;;
+  esac
 else
   printf 'client_id: NOT configured   (missing %s)\n' "$config_file"
 fi
@@ -188,7 +192,21 @@ if [ -z "$client_id" ] || [ -z "$key_file" ] || [ ! -r "$key_file" ]; then
   needs_action=true
 fi
 
-if $needs_action; then
+if $placeholder_config; then
+  # Fresh install: config still has placeholders. Emit the ONE consolidated
+  # checklist an agent pastes to the human (contract: docs/agent-setup.md).
+  # This takes precedence over needs_action: without App values, bootstrap
+  # cannot succeed, so the human checklist is always the first next step.
+  printf '%s\n' 'HUMAN SETUP NEEDED — paste this checklist to the human, then run myanyagent-bootstrap:'
+  printf '%s\n' '  1. In the browser: register your GitHub App (Contents: Read & write only; webhooks off)'
+  printf '%s\n' '     https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app'
+  printf '%s\n' '  2. On the App settings page: "Generate a private key" and download the .pem'
+  printf '%s\n' '     https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps'
+  printf '%s\n' '  3. Install the App on your own account (select the target repos)'
+  printf '%s\n' '     https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app'
+  printf '%s\n' "  4. Give the agent back: Client ID, App ID, the downloaded .pem path, and the"
+  printf '%s\n' '     installation ID (number in https://github.com/settings/installations/<ID> URL)'
+elif $needs_action; then
   printf '%s\n' "-> run: $(hint_cmd myanyagent-bootstrap)"
 else
   printf 'OK\n'

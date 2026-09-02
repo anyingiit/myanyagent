@@ -260,4 +260,24 @@ echo "$out" | grep -qF "git fetch origin main" \
 printf 'PASS: no origin/HEAD yields informational base line, no crash\n'
 rm -rf "$UNPUSH_HOME"
 
+# --- Test 12: placeholder config -> agent-facing human-intervention checklist ---
+# A fresh install leaves REPLACE_ME in config.toml. status must emit a single
+# consolidated checklist the agent can paste to the human (docs/agent-setup.md
+# contract): what to do, where, with the official tutorial links.
+PH=$(mktemp -d)
+mkdir -p "$PH/.config/myanyagent" "$PH/.local/share/myanyagent/bin"
+cp "$(cd "$(dirname "$STATUS")/.." && pwd)/config/config.template.toml" "$PH/.config/myanyagent/config.toml"
+cp "$(cd "$(dirname "$STATUS")" && pwd)/myanyagent-credential-helper.cjs" "$PH/.local/share/myanyagent/bin/"
+printf '3' > "$PH/.local/share/myanyagent/VERSION"
+out=$(HOME="$PH" sh "$STATUS" 2>&1) || true
+echo "$out" | grep -q "HUMAN SETUP NEEDED" || fail "placeholder config must surface the human-setup checklist, got: $out"
+echo "$out" | grep -q "registering-a-github-app" || fail "checklist must link the App-registration tutorial, got: $out"
+echo "$out" | grep -q "managing-private-keys" || fail "checklist must link the private-key tutorial, got: $out"
+echo "$out" | grep -q "installing-your-own-github-app" || fail "checklist must link the App-install tutorial, got: $out"
+# The checklist must be CONSOLIDATED (one block, not scattered per-field lines)
+checklist_lines=$(echo "$out" | grep -c "HUMAN SETUP NEEDED")
+[ "$checklist_lines" = "1" ] || fail "checklist must appear exactly once, got $checklist_lines"
+printf 'PASS: placeholder config emits consolidated human-setup checklist\n'
+rm -rf "$PH"
+
 printf '\nALL status tests passed\n'

@@ -86,6 +86,7 @@ Rules:
 - **Inspect**: `myanyagent-status` — repo binding, machine config, key, git config, identity mode
 - **Configure a repo**: `myanyagent-bootstrap` — requires `.myanyagent.toml` + `origin` → `https://github.com/<repository>.git`
 - **Override key**: `MYANYAGENT_PRIVATE_KEY=/abs/path/key.pem myanyagent-bootstrap`
+- **Install on a new machine**: follow [docs/agent-setup.md](../../docs/agent-setup.md) in the repo (clone it first) — it defines the self-check loop (`myanyagent-status` → HUMAN SETUP NEEDED checklist → fill config → bootstrap). Paste the checklist to the human verbatim when status prints it; do not paraphrase or split it into per-field questions.
 - **Upstream contributions**: `myanyagent-upstream help` — self-describing usage
 
 ## Contributing to third-party public repos (upstream)
