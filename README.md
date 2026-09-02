@@ -1,5 +1,7 @@
 # MyAnyAgent — How to Use It
 
+[简体中文](README.zh-CN.md) | English
+
 MyAnyAgent is a tool for **AI agents**, operated by **humans**. You don't
 run its commands yourself — you tell your agent what you want, and the
 agent drives the tool. This README teaches you what to say.
