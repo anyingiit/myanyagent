@@ -1,91 +1,64 @@
-# MyAnyAgent
+<!-- Source: Best-README-Template BLANK_README (Unlicense) — https://github.com/othneildrew/Best-README-Template -->
+<a id="readme-top"></a>
 
-English | [简体中文](README.zh-CN.md)
+# Myanyagent
 
-MyAnyAgent lets your **AI agent** push to GitHub and manage PRs/issues
-for you — without you handling any passwords or tokens.
+MyAnyAgent lets your **AI agent** push to GitHub and manage PRs/issues for you — without you handling any passwords or tokens.
 
-You don't install anything yourself. **Tell your agent:**
+[![CI](https://github.com/anyingiit/myanyagent/actions/workflows/ci.yml/badge.svg)](https://github.com/anyingiit/myanyagent/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/anyingiit/myanyagent)](LICENSE)
 
-> "Install myanyagent on this machine. The repo is
-> https://github.com/anyingiit/myanyagent"
+[Report a bug](https://github.com/anyingiit/myanyagent/issues/new?template=bug_report.yml) · [Request a feature](https://github.com/anyingiit/myanyagent/issues/new?template=feature_request.yml)
 
-The agent runs the whole setup. It will come back to you **exactly
-once** with a short browser checklist (creating your GitHub App and its
-key — the only part that genuinely needs your GitHub account). After
-you hand back the three values it asks for, you're done forever.
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li><a href="#about-the-project">About The Project</a></li>
+    <li><a href="#getting-started">Getting Started</a></li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#contributing">Contributing</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#contact">Contact</a></li>
+  </ol>
+</details>
 
-## What you'll be asked to do (the one-time checklist)
+## About The Project
 
-When the agent asks, you'll do three browser steps (~5 minutes) and give
-it four values:
+MyAnyAgent lets your **AI agent** push to GitHub and manage PRs/issues for you — without you handling any passwords or tokens.
 
-1. **Register a GitHub App** in your account settings
-   ([official tutorial](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app))
-   — during registration set **Contents: Read and write** (the only
-   permission needed) and leave webhooks off
-2. **Generate a private key** on the App's settings page
-   ([official tutorial](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps))
-   — download the `.pem` file
-3. **Install the App on your own account**
-   ([official tutorial](https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app))
-   — select the repos you want the agent to push to
+See the [open issues](https://github.com/anyingiit/myanyagent/issues) for planned features and known issues.
 
-Then hand the agent: the **Client ID**, the **App ID**, the downloaded
-**.pem file**, and the **installation ID** (the number in the URL when
-you open the installation's configure page:
-`github.com/settings/installations/<ID>`).
+## Getting Started
 
-That's the entire human part. Everything else — installation, config,
-per-repo setup, error recovery — the agent handles by itself, guided by
-the tool's built-in `-> run:` hints.
+### Prerequisites
 
-## After setup: what you can say
+- Git
 
-| You say | The agent does |
-|---|---|
-| "push my branch" | Authenticates via your App; commits get AI disclosure automatically |
-| "fork X and open a PR upstream" | Shows you the plan first, then executes |
-| "comment on upstream PR #12" / "close issue #5" | Allowlisted API writes, plan shown first |
-| "why is pushing failing?" | Runs `myanyagent-status`, self-heals or tells you what it needs |
-
-## Why this is safe
-
-- Every write operation on third-party repos is a **dry-run first** —
-  nothing happens silently
-- Only a **fixed allowlist** of GitHub endpoints is callable
-- Tokens are **short-lived**, secrets stay in `0600` files, never in
-  git history or logs
-- Every commit carries `Co-authored-by:` AI disclosure — enforced by a
-  git hook, not by trust
-
-## For OpenCode users
-
-If you use [OpenCode](https://opencode.ai), the agent gets a skill that
-teaches it all of the above:
+### Installation
 
 ```sh
-mkdir -p ~/.config/opencode/skills
-ln -s "$(pwd)/skills/myanyagent" ~/.config/opencode/skills/myanyagent
+git clone https://github.com/anyingiit/myanyagent.git
+cd myanyagent
 ```
 
-## For agents
-
-- [docs/agent-setup.md](docs/agent-setup.md) — the complete
-  install/self-check/checklist procedure you follow
-- [docs/reference.md](docs/reference.md) — config fields, credential
-  flow, allowlist, all commands
-- [docs/contributing-to-third-party-repos.md](docs/contributing-to-third-party-repos.md)
-  — research notes behind the upstream model
-
-## Tests
+## Usage
 
 ```sh
-node --test test/helper.test.cjs
-node --test test/upstream.test.cjs
-node --test test/attribution.test.cjs
-sh test/hooks.test.sh
-sh test/bootstrap.test.sh
-sh test/status.test.sh
-sh test/install.test.sh
+myanyagent --help
 ```
+
+## Contributing
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for how to open an issue or a pull request, and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for the standards expected of everyone taking part.
+
+Please do not report security issues in public issues or pull requests. [SECURITY.md](SECURITY.md) explains how to report them privately.
+
+## License
+
+Distributed under the MIT License. See [LICENSE](LICENSE) for details.
+
+## Contact
+
+Project link: [https://github.com/anyingiit/myanyagent](https://github.com/anyingiit/myanyagent)
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
