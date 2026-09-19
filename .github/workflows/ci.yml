@@ -1,4 +1,15 @@
 # Source: GitHub starter workflow "Simple workflow" (MIT) — https://github.com/actions/starter-workflows/blob/main/ci/blank.yml
+#
+# Repaired by repocurator (feature 002): the test job ran only the starter's
+# placeholder echo, so a green check proved just that the runner could print
+# a sentence. This repository ships a real Node.js test suite
+# (test/*.test.cjs, run with `node --test`) and a real shell test suite
+# (test/*.test.sh) that exercise the credential helper, the upstream API
+# adapter, the attribution trailer, the commit hook, the bootstrap script,
+# the status script and install.sh end to end against local fixtures — no
+# GitHub network access is needed or used. The push/pull_request trigger
+# already named this repository's default branch (`main`), so that part of
+# the starter was not drifted.
 name: CI
 
 on:
@@ -41,8 +52,6 @@ jobs:
           fi
           echo "All actions are pinned to full-length commit SHAs."
 
-      # Add your project's linters below this line.
-
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -52,7 +61,17 @@ jobs:
         with:
           persist-credentials: false
 
-      # Replace the step below with your project's test command. Pin any setup
-      # action you add to a full commit SHA, like the checkout step above.
-      - name: Run tests
-        run: echo "No tests yet. Replace this step with your project's test command."
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: '20'
+
+      - name: Build
+        run: node --check lib/attribution.cjs && node --check bin/myanyagent-credential-helper.cjs && node --check bin/myanyagent-upstream.cjs && sh -n install.sh && sh -n bin/myanyagent-bootstrap.sh && sh -n bin/myanyagent-status.sh && sh -n hooks/prepare-commit-msg
+
+      - name: Test
+        run: |
+          node --test test/helper.test.cjs test/upstream.test.cjs test/attribution.test.cjs
+          sh test/hooks.test.sh
+          sh test/bootstrap.test.sh
+          sh test/status.test.sh
+          sh test/install.test.sh
