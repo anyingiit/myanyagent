@@ -28,11 +28,15 @@ MyAnyAgent 通过短时效、仅限单个仓库的 GitHub App 安装令牌，让
   </ol>
 </details>
 
+<a id="about-the-project"></a>
+
 ## 关于本项目
 
 MyAnyAgent 让 AI 编程 agent 能够向 GitHub 推送提交、开启 pull request，而 agent 本身从不持有你的密码，也不会自己签发长期有效的令牌。仓库里的一个 git 凭据助手（`bin/myanyagent-credential-helper.cjs`）会在每次 `git push` 或 `git fetch` 时签发一个 GitHub App JWT，再据此换取一个刚生成、仅限该仓库、短时效的安装令牌，因此在用的令牌永远是短命的，也从不落盘保存。另一个独立的、白名单限定的适配器（`bin/myanyagent-upstream.cjs`）负责 fork 第三方仓库、向其开启 pull request、在其 issue 下评论，且默认先演练（dry run），等你确认后才真正写入。`prepare-commit-msg` 钩子会自动添加 `Co-authored-by:` trailer 以披露 AI 参与情况，而不是靠自觉；但它会跳过 merge、squash 以及复用信息的提交，遇到缺少 Node.js、缺少 `.myanyagent.toml`，或仓库里已经存在别的钩子这几种情况时，也不会做任何事。
 
 计划中的功能与已知问题，见 [open issues](https://github.com/anyingiit/myanyagent/issues)。
+
+<a id="getting-started"></a>
 
 ## 开始使用
 
@@ -58,6 +62,8 @@ sh install.sh
 4. 用第 1–3 步得到的值，填好 `~/.config/myanyagent/config.toml` 里的 `client_id`、`app_id` 和 `private_key`。
 5. 在每个这样的仓库里创建 `.myanyagent.toml`（字段说明见 `config/config.template.toml` 与 `docs/reference.md`），然后运行 `myanyagent-bootstrap`。
 
+<a id="usage"></a>
+
 ## 用法
 
 ```sh
@@ -66,15 +72,21 @@ myanyagent-status
 
 会报告机器级配置、私钥、以及当前仓库的 git 配置是否就绪；只要有一项没就绪，就会提示一个下一步命令——工具本身尚未安装时是 `sh install.sh`，其余情况是 `myanyagent-bootstrap`；但如果 `.myanyagent.toml` 还不存在，请先创建它（见"安装"第 5 步），因为 `myanyagent-bootstrap` 要求这个文件已经存在，而不会替你创建它。仓库一旦完成 bootstrap，后续通过 HTTPS 的 `git push` 和 `git fetch` 就会自动用安装令牌完成认证；`myanyagent-upstream` 以及其余的按仓库配置细节见 `docs/reference.md`。
 
+<a id="contributing"></a>
+
 ## 参与贡献
 
 欢迎参与。[CONTRIBUTING.md](CONTRIBUTING.md) 说明如何提交 issue 或 pull request，[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) 说明对所有参与者的行为要求。
 
 请不要在公开的 issue 或 pull request 中报告安全问题。[SECURITY.md](SECURITY.md) 说明了私下报告的方式。
 
+<a id="license"></a>
+
 ## 许可证
 
 以 MIT 许可证分发。详见 [LICENSE](LICENSE)。
+
+<a id="contact"></a>
 
 ## 联系方式
 
