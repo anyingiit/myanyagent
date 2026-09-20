@@ -11,10 +11,24 @@ fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 # Isolate global git config to avoid polluting the host
 export GIT_CONFIG_GLOBAL="$TMPDIR/git-config-global"
 
+# Isolate $HOME too. bootstrap.sh refuses to run unless the myanyagent tool
+# is already installed at $HOME/.local/share/myanyagent/bin (it never runs
+# install.sh itself). Tests 4-8 below invoke bootstrap.sh without ever
+# overriding HOME, so without this they silently depend on whatever happens
+# to already be installed in the real $HOME of the machine running the
+# suite: present on a developer box that has run install.sh before, absent
+# on a clean CI runner -- where bootstrap.sh's own
+# `[ -f "$helper" ] || fail "tool not installed..."` check made every one of
+# them fail. Give them a synthetic "already installed" HOME instead.
+export HOME="$TMPDIR/home"
+mkdir -p "$HOME/.local/share/myanyagent/bin"
+cp "$(cd "$(dirname "$BOOTS")" && pwd)/myanyagent-credential-helper.cjs" \
+  "$HOME/.local/share/myanyagent/bin/"
+
 # --- Setup: throwaway git repo with .myanyagent.toml ---
 git init -q "$TMPDIR/repo" || fail "git init failed"
 cd "$TMPDIR/repo"
-git config --global user.email "test@test.test" 2>/dev/null || true
+git config --global user.email "ci@example.invalid" 2>/dev/null || true
 git config --global user.name "Test" 2>/dev/null || true
 
 cat > .myanyagent.toml <<EOF
@@ -114,7 +128,7 @@ repository = "anyingiit/My_Nexus-Editor_Workspace"
 installation_id = "151195329"
 [identity]
 name = "anyingiit"
-email = "42+anyingiit@users.noreply.github.com"
+email = "1+human-fixture@users.noreply.github.com"
 [bot]
 name = "MyAnyAgent[bot]"
 email = "312959697+myanyagent[bot]@users.noreply.github.com"
@@ -123,7 +137,7 @@ git remote add origin "https://github.com/anyingiit/My_Nexus-Editor_Workspace.gi
 MYANYAGENT_PRIVATE_KEY="$KEY" MYANYAGENT_SKIP_SMOKE_TEST=1 sh "$BOOTS" 2>/dev/null \
   || fail "bootstrap (identity) failed"
 [ "$(git config --local user.name)" = "anyingiit" ] || fail "identity: user.name should be human, got: $(git config --local user.name)"
-[ "$(git config --local user.email)" = "42+anyingiit@users.noreply.github.com" ] || fail "identity: user.email should be human, got: $(git config --local user.email)"
+[ "$(git config --local user.email)" = "1+human-fixture@users.noreply.github.com" ] || fail "identity: user.email should be human, got: $(git config --local user.email)"
 [ "$(git config --local myanyagent.repository)" = "anyingiit/My_Nexus-Editor_Workspace" ] || fail "identity: myanyagent.repository not set"
 grep -qxF '.myanyagent.toml' .git/info/exclude || fail "identity: .myanyagent.toml not added to .git/info/exclude"
 printf 'PASS: [identity] overrides bot identity and excludes toml\n'
@@ -152,11 +166,11 @@ name = "MyAnyAgent[bot]"
 email = "312959697+myanyagent[bot]@users.noreply.github.com"
 [identity]
 name = "anyingiit"
-email = "42+anyingiit@users.noreply.github.com"
+email = "1+human-fixture@users.noreply.github.com"
 EOF
 MYANYAGENT_PRIVATE_KEY="$KEY" MYANYAGENT_SKIP_SMOKE_TEST=1 sh "$BOOTS" 2>/dev/null \
   || fail "worktree bootstrap failed"
-[ "$(git config --local user.email)" = "42+anyingiit@users.noreply.github.com" ] || fail "worktree: identity not written"
+[ "$(git config --local user.email)" = "1+human-fixture@users.noreply.github.com" ] || fail "worktree: identity not written"
 main_exclude=$(cd "$TMPDIR/repo2" && git rev-parse --git-path info/exclude)
 case "$main_exclude" in /*) ;; *) main_exclude="$TMPDIR/repo2/$main_exclude";; esac
 grep -qxF '.myanyagent.toml' "$main_exclude" || fail "worktree: exclude not written to $main_exclude"
@@ -199,7 +213,7 @@ rm -rf "$TOOLHOME"
 # (extensions.worktreeConfig) so the main worktree's config is untouched.
 git init -q "$TMPDIR/repo3" || fail "git init repo3 failed"
 cd "$TMPDIR/repo3"
-git config --global user.email "test@test.test" 2>/dev/null || true
+git config --global user.email "ci@example.invalid" 2>/dev/null || true
 git config --global user.name "Test" 2>/dev/null || true
 cat > .myanyagent.toml <<EOF
 repository = "anyingiit/My_Nexus-Editor_Workspace"
@@ -274,7 +288,7 @@ chmod +x "$FAKEBIN/git"
 
 git init -q "$TMPDIR/repo4" || fail "git init repo4 failed"
 cd "$TMPDIR/repo4"
-git config --global user.email "test@test.test" 2>/dev/null || true
+git config --global user.email "ci@example.invalid" 2>/dev/null || true
 git config --global user.name "Test" 2>/dev/null || true
 cat > .myanyagent.toml <<EOF
 repository = "anyingiit/My_Nexus-Editor_Workspace"

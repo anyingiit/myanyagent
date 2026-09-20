@@ -9,12 +9,38 @@ trap cleanup EXIT
 # Isolate global git config to avoid polluting the host
 export GIT_CONFIG_GLOBAL="$TMPDIR/git-config-global"
 
+# Isolate $HOME too. myanyagent-status.sh reports "tool: NOT installed" (and
+# exits early, before any of the git-config/identity/attribution checks these
+# tests exercise) unless $HOME/.local/share/myanyagent already looks
+# installed. Tests 1-4 and 6-11 below invoke it without ever overriding HOME,
+# so without this they silently depend on whatever happens to already be
+# installed in the real $HOME of the machine running the suite: present on a
+# developer box that has run install.sh before, absent on a clean CI runner,
+# where every one of them would short-circuit on the "tool: NOT installed"
+# branch instead of reaching the behavior under test. Give them a synthetic
+# "already installed" HOME instead (tests 5 and 12 already set up their own
+# dedicated HOME per call and are unaffected).
+export HOME="$TMPDIR/home"
+mkdir -p "$HOME/.local/share/myanyagent/bin" "$HOME/.local/bin"
+cp "$(cd "$(dirname "$STATUS")" && pwd)/myanyagent-credential-helper.cjs" \
+  "$HOME/.local/share/myanyagent/bin/"
+printf '1' > "$HOME/.local/share/myanyagent/VERSION"
+
+# Test 1 (below) expects the bare-name "-> run: myanyagent-bootstrap" hint,
+# which status.sh only emits when $HOME/.local/bin -- where install.sh
+# symlinks the commands -- is on PATH. That is true after a real install on
+# a machine whose shell profile was sourced, but not guaranteed for a
+# non-interactive test runner, so make it true explicitly rather than
+# relying on whatever PATH the suite happens to inherit. Test 3 exercises
+# the opposite (absolute-path fallback) by overriding PATH itself.
+export PATH="$HOME/.local/bin:$PATH"
+
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 
 # --- Setup: throwaway git repo ---
 git init -q "$TMPDIR/repo"
 cd "$TMPDIR/repo"
-git config --global user.email "test@test.test" 2>/dev/null || true
+git config --global user.email "ci@example.invalid" 2>/dev/null || true
 git config --global user.name "Test" 2>/dev/null || true
 
 cat > .myanyagent.toml <<EOF
@@ -100,12 +126,12 @@ rm -rf "$TESTHOME" "$TMPDIR/dummy.pem"
 cat >> .myanyagent.toml <<EOF
 [identity]
 name = "anyingiit"
-email = "42+anyingiit@users.noreply.github.com"
+email = "1+human-fixture@users.noreply.github.com"
 EOF
 git config --local user.name "anyingiit"
-git config --local user.email "42+anyingiit@users.noreply.github.com"
+git config --local user.email "1+human-fixture@users.noreply.github.com"
 out=$(sh "$STATUS" 2>&1) || true
-echo "$out" | grep -qF "identity: contribution (42+anyingiit@users.noreply.github.com)" || fail "should report contribution identity, got: $out"
+echo "$out" | grep -qF "identity: contribution (1+human-fixture@users.noreply.github.com)" || fail "should report contribution identity, got: $out"
 printf 'PASS: [identity] reported as contribution identity\n'
 
 # --- Test 7: identity mismatch -> MISMATCH + action hint ---
@@ -117,7 +143,7 @@ printf 'PASS: identity mismatch reported with action hint\n'
 
 # --- Test 8: attribution hook + trailer reported ---
 # Restore matching identity so MISMATCH from Test 7 does not mask attribution lines.
-git config --local user.email "42+anyingiit@users.noreply.github.com"
+git config --local user.email "1+human-fixture@users.noreply.github.com"
 hooks_dir=$(git rev-parse --git-path myanyagent-hooks)
 case "$hooks_dir" in /*) ;; *) hooks_dir="$PWD/$hooks_dir" ;; esac
 mkdir -p "$hooks_dir"
@@ -130,12 +156,12 @@ chmod +x "$hooks_dir/prepare-commit-msg"
 git config --local core.hooksPath "$(git rev-parse --git-path myanyagent-hooks)"
 # Add co_author to the existing toml ([identity] already appended in Test 6)
 cat >> .myanyagent.toml <<'EOF'
-co_author = "OpenCode (Kimi) <noreply@myanyagent.local>"
+co_author = "OpenCode (Kimi) <agent@example.invalid>"
 EOF
 
 out=$(sh "$STATUS" 2>&1) || true
 echo "$out" | grep -q "attribution hook: installed" || fail "should report hook installed, got: $out"
-echo "$out" | grep -qF 'attribution trailer: OpenCode (Kimi) <noreply@myanyagent.local>' || fail "should report resolved trailer, got: $out"
+echo "$out" | grep -qF 'attribution trailer: OpenCode (Kimi) <agent@example.invalid>' || fail "should report resolved trailer, got: $out"
 printf 'PASS: attribution hook and trailer reported\n'
 
 # --- Test 9: hook missing -> NOT installed + bootstrap hint ---
@@ -159,7 +185,7 @@ printf '1' > "$UNPUSH_HOME/.local/share/myanyagent/VERSION"
 git init -q "$TMPDIR/repo4" || fail "git init repo4 failed"
 git init -q --bare "$TMPDIR/remote4.git"
 cd "$TMPDIR/repo4"
-git config --global user.email "test@test.test" 2>/dev/null || true
+git config --global user.email "ci@example.invalid" 2>/dev/null || true
 git config --global user.name "Test" 2>/dev/null || true
 git remote add origin "$TMPDIR/remote4.git"
 cat > .myanyagent.toml <<EOF
@@ -199,7 +225,7 @@ printf 'PASS: different co-author value reported as missing\n'
 git init -q "$TMPDIR/repo5" || fail "git init repo5 failed"
 git init -q --bare "$TMPDIR/remote5.git"
 cd "$TMPDIR/repo5"
-git config --global user.email "test@test.test" 2>/dev/null || true
+git config --global user.email "ci@example.invalid" 2>/dev/null || true
 git config --global user.name "Test" 2>/dev/null || true
 git remote add origin "$TMPDIR/remote5.git"
 cat > .myanyagent.toml <<EOF
@@ -217,7 +243,7 @@ git remote set-head origin --auto >/dev/null 2>&1 || fail "set-head (c) failed"
 echo two > two.txt; git add two.txt
 git commit -qm "two trailers" \
   --trailer "Co-authored-by: $TRAILER" \
-  --trailer "Signed-off-by: Human <h@e.co>"
+  --trailer "Signed-off-by: Human <human@example.invalid>"
 echo none > none.txt; git add none.txt
 git commit -qm "none"
 out=$(HOME="$UNPUSH_HOME" sh "$STATUS" 2>&1) || true
@@ -229,7 +255,7 @@ printf 'PASS: two-trailer commit not double-counted\n'
 git init -q "$TMPDIR/repo6" || fail "git init repo6 failed"
 git init -q --bare "$TMPDIR/remote6.git"
 cd "$TMPDIR/repo6"
-git config --global user.email "test@test.test" 2>/dev/null || true
+git config --global user.email "ci@example.invalid" 2>/dev/null || true
 git config --global user.name "Test" 2>/dev/null || true
 git remote add origin "$TMPDIR/remote6.git"
 cat > .myanyagent.toml <<EOF
