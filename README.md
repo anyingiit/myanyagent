@@ -26,7 +26,7 @@ MyAnyAgent authenticates an AI coding agent to GitHub through short-lived, repos
 
 ## About The Project
 
-MyAnyAgent lets an AI coding agent push commits and open pull requests to GitHub without ever holding your password or minting its own long-lived token. A git credential helper (`bin/myanyagent-credential-helper.cjs`) signs a GitHub App JWT and mints a fresh, repository-scoped installation token on every `git push` or `git fetch`, so the token in play is always short-lived and never stored. A separate, allowlisted adapter (`bin/myanyagent-upstream.cjs`) covers forking a third-party repository, opening a pull request against it, and commenting on its issues, and defaults to a dry run until you approve the write. Every commit made through the tool carries a `Co-authored-by:` trailer disclosing AI involvement, added by a `prepare-commit-msg` hook rather than left to habit.
+MyAnyAgent lets an AI coding agent push commits and open pull requests to GitHub without ever holding your password or minting its own long-lived token. A git credential helper (`bin/myanyagent-credential-helper.cjs`) signs a GitHub App JWT and mints a fresh, repository-scoped installation token on every `git push` or `git fetch`, so the token in play is always short-lived and never stored. A separate, allowlisted adapter (`bin/myanyagent-upstream.cjs`) covers forking a third-party repository, opening a pull request against it, and commenting on its issues, and defaults to a dry run until you approve the write. A `prepare-commit-msg` hook adds a `Co-authored-by:` trailer disclosing AI involvement, rather than leaving that to habit; it skips merge, squash and reused-message commits, and does nothing if Node.js, `.myanyagent.toml` or a foreign hook already in place stand in its way.
 
 See the [open issues](https://github.com/anyingiit/myanyagent/issues) for planned features and known issues.
 
@@ -35,7 +35,7 @@ See the [open issues](https://github.com/anyingiit/myanyagent/issues) for planne
 ### Prerequisites
 
 - Git
-- Node.js 18 or newer — both `install.sh` and `bin/myanyagent-bootstrap.sh` refuse to run without it
+- Node.js 18 or newer — both `install.sh` and `bin/myanyagent-bootstrap.sh` only check that a `node` executable is on `PATH`, not its version, so an older runtime is not rejected but is unsupported
 - A GitHub App you register yourself, with its private key saved somewhere only you can read (the one browser-based step; see Installation below)
 
 ### Installation
@@ -60,7 +60,7 @@ sh install.sh
 myanyagent-status
 ```
 
-reports whether the machine config, the private key, and the current repository's git configuration are ready, and names the exact next command when something is not — `myanyagent-bootstrap` to configure a repository, or `sh install.sh` if the tool itself is missing. Once a repository is bootstrapped, `git push` and `git fetch` over HTTPS authenticate through the installation token automatically; `docs/reference.md` covers `myanyagent-upstream` and the rest of the per-repository configuration.
+reports whether the machine config, the private key, and the current repository's git configuration are ready, and suggests a next command when something is not — `sh install.sh` if the tool itself is missing, or `myanyagent-bootstrap` otherwise; if `.myanyagent.toml` does not exist yet, create it first (see Installation step 5), since `myanyagent-bootstrap` requires that file rather than creating it. Once a repository is bootstrapped, `git push` and `git fetch` over HTTPS authenticate through the installation token automatically; `docs/reference.md` covers `myanyagent-upstream` and the rest of the per-repository configuration.
 
 ## Contributing
 
